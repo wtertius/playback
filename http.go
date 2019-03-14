@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"github.com/moul/http2curl"
 )
 
+var errPlaybackFailed = errors.New("Playback failed")
+
 var _ http.RoundTripper = httpPlayback{}
 
 type httpPlayback struct {
@@ -19,33 +22,24 @@ type httpPlayback struct {
 	playback *Playback
 }
 
-func (p httpPlayback) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !p.playback.On {
-		return p.Real.RoundTrip(req)
-	}
+type httpResponseRecord struct {
+	StatusCode int
+	Body       string
+}
 
-	if p.playback.Mode == ModePlayback {
-		return p.Playback(req)
-	}
+func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err error) {
+	recorder := newHTTPRecorder(&p, req)
+	p.playback.Run(recorder)
 
-	return p.Record(req)
-
-	/*
-		command, err := http2curl.GetCurlCommand(req)
-		if err != nil {
-			fmt.Printf("Can't convert request to curl. Error: %s", err)
-		}
-
-		filename := strings.Replace(req.URL.Path, "/", "", -1) + "_" + calcMD5(command.String()) + ".playback"
-	*/
-
-	// ioutil.WriteFile("/app/go/src/gitlab.ozon.ru/travel/flight-gds-s7/RQ.xml", buf.Bytes(), 0644)
-
+	return recorder.res, recorder.err
 }
 
 func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 	rec := p.newRecordFromHTTPRequest(req)
-	rec.Playback()
+	err := rec.Playback()
+	if err != nil {
+		return nil, errPlaybackFailed
+	}
 
 	var responseRec httpResponseRecord
 	_ = json.Unmarshal([]byte(rec.response), &responseRec)
@@ -54,8 +48,7 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 		Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(responseRec.Body))),
 	}
 
-	// TODO get from file an
-	return &res, nil
+	return &res, rec.err
 }
 
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
@@ -92,11 +85,6 @@ func (p *httpPlayback) RecordResponse(rec record, res *http.Response, err error)
 	rec.response, rec.err = string(response), err
 
 	rec.RecordResponse()
-}
-
-type httpResponseRecord struct {
-	StatusCode int
-	Body       string
 }
 
 func (p *httpPlayback) newRecordFromHTTPRequest(req *http.Request) record {
