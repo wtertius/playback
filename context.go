@@ -1,6 +1,8 @@
 package playback
 
-import "context"
+import (
+	"context"
+)
 
 var contextKey = struct{}{}
 
