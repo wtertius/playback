@@ -13,7 +13,7 @@ func NewContext(ctx context.Context, p *Playback) context.Context {
 func FromContext(ctx context.Context) *Playback {
 	p, ok := ctx.Value(contextKey).(*Playback)
 	if !ok {
-		return Default
+		return Default()
 	}
 
 	return p

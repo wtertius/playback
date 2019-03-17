@@ -5,17 +5,19 @@ import (
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
-var Default = &Playback{
-	On:              true,
-	Mode:            ModePlaybackOrRecord,
-	ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
-	Debounce:        2 * time.Second,
+func Default() *Playback {
+	return &Playback{
+		Mode:            Mode(viper.GetString(FlagPlaybackMode)),
+		ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
+		Debounce:        2 * time.Second,
+	}
 }
 
 type Playback struct {
-	On              bool
 	Mode            Mode
 	ExcludeHeaderRE *regexp.Regexp
 	Debounce        time.Duration
@@ -59,11 +61,9 @@ type Recorder interface {
 }
 
 func (p *Playback) Run(recorder Recorder) error {
-	if !p.On {
-		return recorder.Call()
-	}
-
 	switch p.Mode {
+	case ModeOff:
+		return recorder.Call()
 	case ModePlayback:
 		return recorder.Playback()
 
@@ -86,5 +86,5 @@ func (p *Playback) Run(recorder Recorder) error {
 
 	}
 
-	return recorder.Record()
+	return recorder.Call()
 }
