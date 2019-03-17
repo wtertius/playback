@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/moul/http2curl"
 )
-
-var errPlaybackFailed = errors.New("Playback failed")
 
 var _ http.RoundTripper = httpPlayback{}
 
@@ -35,10 +32,10 @@ func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err erro
 }
 
 func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
-	rec := p.newRecordFromHTTPRequest(req)
+	rec := p.newRecord(req)
 	err := rec.Playback()
 	if err != nil {
-		return nil, errPlaybackFailed
+		return nil, err
 	}
 
 	var responseRec httpResponseRecord
@@ -52,7 +49,7 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 }
 
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
-	rec := p.newRecordFromHTTPRequest(req)
+	rec := p.newRecord(req)
 
 	rec.RecordRequest()
 
@@ -87,14 +84,35 @@ func (p *httpPlayback) RecordResponse(rec record, res *http.Response, err error)
 	rec.RecordResponse()
 }
 
-func (p *httpPlayback) newRecordFromHTTPRequest(req *http.Request) record {
+func (p *httpPlayback) newRecord(req *http.Request) record {
+	header := req.Header
+
+	req.Header = p.excludeHeader(req.Header)
 	command, _ := http2curl.GetCurlCommand(req)
-	basename := BasenamePrefix + strings.Replace(req.URL.Path, "/", "", -1) + "_" + calcMD5(command.String())
+
+	req.Header = header
+
+	basename := strings.Replace(req.URL.Path, "/", "", -1) + "_" + calcMD5(command.String())
 
 	return record{
+		debounce: p.playback.Debounce,
 		basename: basename,
 		request:  command.String(),
 	}
+}
+
+func (p *httpPlayback) excludeHeader(header http.Header) http.Header {
+	filtered := make(http.Header, len(header))
+
+	for header, value := range header {
+		if p.playback.ExcludeHeaderRE != nil && p.playback.ExcludeHeaderRE.MatchString(header) {
+			continue
+		}
+
+		filtered[header] = value
+	}
+
+	return filtered
 }
 
 func calcMD5(data string) string {

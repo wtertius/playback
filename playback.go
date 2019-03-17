@@ -1,16 +1,24 @@
 package playback
 
-import "net/http"
+import (
+	"database/sql/driver"
+	"net/http"
+	"regexp"
+	"time"
+)
 
 var Default = Playback{
-	On:   true,
-	Mode: ModePlaybackOrRecord,
-	//Mode: ModeRecord,
+	On:              true,
+	Mode:            ModePlaybackOrRecord,
+	ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
+	Debounce:        2 * time.Second,
 }
 
 type Playback struct {
-	On   bool
-	Mode Mode
+	On              bool
+	Mode            Mode
+	ExcludeHeaderRE *regexp.Regexp
+	Debounce        time.Duration
 }
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {
@@ -18,6 +26,30 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 		Real:     transport,
 		playback: p,
 	}
+}
+
+func (p *Playback) Random(key string, value interface{}) interface{} {
+	recorder := newRandomRecorder(key, value)
+
+	p.Run(recorder)
+
+	return recorder.value
+}
+
+func (p *Playback) SQLRows(query string, args []driver.NamedValue, f func() (driver.Rows, error)) (driver.Rows, error) {
+	recorder := newSQLRowsRecorder(query, args, f)
+
+	p.Run(recorder)
+
+	return recorder.rows, recorder.err
+}
+
+func (p *Playback) SQLResult(query string, args []driver.NamedValue, f func() (driver.Result, error)) (driver.Result, error) {
+	recorder := newSQLResultRecorder(query, args, f)
+
+	p.Run(recorder)
+
+	return recorder.result, recorder.err
 }
 
 type Recorder interface {

@@ -1,10 +1,17 @@
 package playback
 
-import "io/ioutil"
+import (
+	"errors"
+	"io/ioutil"
+	"time"
+)
 
 const BasenamePrefix = "/tmp/playback."
 
+var errPlaybackFailed = errors.New("Playback failed")
+
 type record struct {
+	debounce time.Duration
 	basename string
 	request  string
 	response string
@@ -12,20 +19,31 @@ type record struct {
 }
 
 func (r *record) RecordRequest() {
-	ioutil.WriteFile(r.requestFilename(), []byte(r.request), 0644)
+	r.WriteDebounced(r.requestFilename(), r.request)
 }
 
 func (r *record) RecordResponse() {
-	ioutil.WriteFile(r.responseFilename(), []byte(r.response), 0644)
+	r.WriteDebounced(r.responseFilename(), r.response)
+}
+
+func (r *record) WriteDebounced(filename string, content string) {
+	Debounce(filename, func() {
+		ioutil.WriteFile(filename, []byte(content), 0644)
+	}, r.debounce)
 }
 
 func (r *record) Playback() error {
 	err := r.PlaybackRequest()
 	if err != nil {
-		return err
+		return errPlaybackFailed
 	}
 
-	return r.PlaybackResponse()
+	err = r.PlaybackResponse()
+	if err != nil {
+		return errPlaybackFailed
+	}
+
+	return nil
 }
 
 func (r *record) PlaybackRequest() error {
@@ -41,9 +59,9 @@ func (r *record) PlaybackResponse() error {
 }
 
 func (r *record) requestFilename() string {
-	return r.basename + ".request"
+	return BasenamePrefix + r.basename + ".request"
 }
 
 func (r *record) responseFilename() string {
-	return r.basename + ".response"
+	return BasenamePrefix + r.basename + ".response"
 }
