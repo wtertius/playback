@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var Default = Playback{
+var Default = &Playback{
 	On:              true,
 	Mode:            ModePlaybackOrRecord,
 	ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
