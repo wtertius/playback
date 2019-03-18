@@ -3,10 +3,11 @@ package playback
 import (
 	"bytes"
 	"crypto/md5"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/moul/http2curl"
@@ -24,6 +25,35 @@ type httpResponseRecord struct {
 	Body       string
 }
 
+func (r httpResponseRecord) Marshal() string {
+	text := fmt.Sprintf("StatusCode: %d\n", r.StatusCode)
+	text += fmt.Sprintf("Body:<<BODY\n%s\nBODY\n", r.Body)
+
+	return text
+}
+
+var httpResponseRecordRE = regexp.MustCompile(`^\s*(?s)StatusCode:\s+(\d+)\nBody:<<BODY\n(.*)\nBODY[\n\s]*$`)
+
+func (r *httpResponseRecord) Unmarshal(text string) error {
+	match := httpResponseRecordRE.FindStringSubmatch(text)
+
+	if len(match) != 3 {
+		return fmt.Errorf("Incorrect text on httpResponseRecord.Unmarshal:\n%s\n", text)
+	}
+
+	statusCode, err := strconv.Atoi(match[1])
+	if err != nil {
+		return err
+	}
+
+	*r = httpResponseRecord{
+		StatusCode: statusCode,
+		Body:       match[2],
+	}
+
+	return nil
+}
+
 func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err error) {
 	recorder := newHTTPRecorder(&p, req)
 	p.playback.Run(recorder)
@@ -33,13 +63,18 @@ func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err erro
 
 func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 	rec := p.newRecord(req)
+
 	err := rec.Playback()
 	if err != nil {
 		return nil, err
 	}
 
-	var responseRec httpResponseRecord
-	_ = json.Unmarshal([]byte(rec.response), &responseRec)
+	responseRec := &httpResponseRecord{}
+	err = responseRec.Unmarshal(rec.response)
+	if err != nil {
+		return nil, errPlaybackFailed
+	}
+
 	res := http.Response{
 		StatusCode: responseRec.StatusCode,
 		Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(responseRec.Body))),
@@ -77,9 +112,7 @@ func (p *httpPlayback) RecordResponse(rec record, res *http.Response, err error)
 		responseRec.Body = string(body)
 	}
 
-	response, _ := json.MarshalIndent(responseRec, "", "    ")
-
-	rec.response, rec.err = string(response), err
+	rec.response, rec.err = responseRec.Marshal(), err
 
 	rec.RecordResponse()
 }
