@@ -5,25 +5,25 @@ import (
 	"reflect"
 )
 
-type randomRecorder struct {
+type generatedRecorder struct {
 	key   string
 	typ   reflect.Type
 	value interface{}
 }
 
-func newRandomRecorder(key string, value interface{}) *randomRecorder {
-	return &randomRecorder{
+func newGeneratedRecorder(key string, value interface{}) *generatedRecorder {
+	return &generatedRecorder{
 		key:   key,
 		typ:   reflect.TypeOf(value),
 		value: value,
 	}
 }
 
-func (r *randomRecorder) Call() error {
+func (r *generatedRecorder) Call() error {
 	return nil
 }
 
-func (r *randomRecorder) Record() error {
+func (r *generatedRecorder) Record() error {
 	rec := r.newRecord()
 
 	rec.RecordRequest()
@@ -32,7 +32,7 @@ func (r *randomRecorder) Record() error {
 	return nil
 }
 
-func (r *randomRecorder) Playback() error {
+func (r *generatedRecorder) Playback() error {
 	rec := r.newRecord()
 
 	err := rec.Playback()
@@ -52,7 +52,7 @@ func (r *randomRecorder) Playback() error {
 	return nil
 }
 
-func (r *randomRecorder) newRecord() record {
+func (r *generatedRecorder) newRecord() record {
 	valueMarshalled := jsonMarshal(r.value)
 
 	return record{

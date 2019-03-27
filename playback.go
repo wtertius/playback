@@ -30,8 +30,8 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 	}
 }
 
-func (p *Playback) Random(key string, value interface{}) interface{} {
-	recorder := newRandomRecorder(key, value)
+func (p *Playback) Generated(key string, value interface{}) interface{} {
+	recorder := newGeneratedRecorder(key, value)
 
 	p.Run(recorder)
 
