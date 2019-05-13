@@ -3,42 +3,59 @@ package playback
 import (
 	"errors"
 	"io/ioutil"
+	"os"
 	"time"
+
+	yaml "gopkg.in/yaml.v2"
 )
 
-const BasenamePrefix = "/tmp/playback."
+type RecordKind string
+
+const (
+	BasenamePrefix = "playback."
+
+	KindResult = RecordKind("result")
+)
 
 var errPlaybackFailed = errors.New("Playback failed")
 
 type record struct {
+	// TODO Obsolete - check
 	debounce time.Duration
-	basename string
+	basename string // TODO REMOVEME
+	file     *os.File
 	request  string
 	response string
 	err      error
+
+	// TODO New fields
+	Kind     RecordKind
+	Key      string
+	Request  string
+	Response string
 }
 
 func (r *record) RecordRequest() {
-	r.WriteDebounced(r.requestFilename(), r.request)
+	r.Write(r.casseteFile(), r.request)
 }
 
 func (r *record) RecordResponse() {
-	r.WriteDebounced(r.responseFilename(), r.response)
+	record := yamlMarshal([]*record{r})
+	r.Write(r.casseteFile(), record)
 }
 
-func (r *record) WriteDebounced(filename string, content string) {
-	Debounce(filename, func() {
-		ioutil.WriteFile(filename, []byte(content), 0644)
-	}, r.debounce)
+func yamlMarshal(value interface{}) string {
+	bytes, _ := yaml.Marshal(value)
+	return string(bytes)
+}
+
+func (r *record) Write(file *os.File, content string) {
+	file.WriteString(content)
+	file.Sync()
 }
 
 func (r *record) Playback() error {
-	err := r.PlaybackRequest()
-	if err != nil {
-		return errPlaybackFailed
-	}
-
-	err = r.PlaybackResponse()
+	err := r.playback()
 	if err != nil {
 		return errPlaybackFailed
 	}
@@ -46,22 +63,42 @@ func (r *record) Playback() error {
 	return nil
 }
 
-func (r *record) PlaybackRequest() error {
-	request, err := ioutil.ReadFile(r.requestFilename())
-	r.request = string(request)
-	return err
+func (r *record) playback() error {
+	records, err := r.UnmarshalFromFile()
+	if err != nil {
+		return err
+	}
+
+	for _, record := range records {
+		if record.Kind == r.Kind && record.Key == r.Key {
+			r.Request = record.Request
+			r.Response = record.Response
+			break
+		}
+	}
+
+	return nil
 }
 
-func (r *record) PlaybackResponse() error {
-	response, err := ioutil.ReadFile(r.responseFilename())
-	r.response = string(response)
-	return err
+func (r *record) UnmarshalFromFile() ([]*record, error) {
+	request, err := ioutil.ReadFile(r.casseteFile().Name())
+	if err != nil {
+		return nil, err
+	}
+
+	if len(request) == 0 {
+		return nil, errPlaybackFailed
+	}
+
+	var records []*record
+	err = yaml.Unmarshal(request, &records)
+	if err != nil {
+		return nil, err
+	}
+
+	return records, nil
 }
 
-func (r *record) requestFilename() string {
-	return BasenamePrefix + r.basename + ".request"
-}
-
-func (r *record) responseFilename() string {
-	return BasenamePrefix + r.basename + ".response"
+func (r *record) casseteFile() *os.File {
+	return r.file
 }

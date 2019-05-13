@@ -5,11 +5,16 @@ import (
 	"time"
 )
 
+// FIXME Remove or fix
 var debounce = debounceMap{
 	store: make(map[string]time.Time, 10),
 }
 
 func Debounce(key string, f func(), delay time.Duration) {
+	if delay == 0 {
+		f()
+	}
+
 	go func() {
 		debounce.Put(key, time.Now())
 		time.Sleep(delay)

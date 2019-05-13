@@ -3,6 +3,7 @@ package playback
 import (
 	"database/sql/driver"
 	"net/http"
+	"os"
 	"regexp"
 	"time"
 
@@ -18,6 +19,7 @@ func Default() *Playback {
 }
 
 type Playback struct {
+	File            *os.File
 	Mode            Mode
 	ExcludeHeaderRE *regexp.Regexp
 	Debounce        time.Duration
@@ -30,8 +32,8 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 	}
 }
 
-func (p *Playback) Generated(key string, value interface{}) interface{} {
-	recorder := newGeneratedRecorder(key, value)
+func (p *Playback) Result(key string, value interface{}) interface{} {
+	recorder := newResultRecorder(p.File, key, value)
 
 	p.Run(recorder)
 
