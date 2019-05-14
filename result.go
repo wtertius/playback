@@ -1,17 +1,16 @@
 package playback
 
 import (
-	"os"
 	"reflect"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
 type resultRecorder struct {
-	file  *os.File
-	key   string
-	typ   reflect.Type
-	value interface{}
+	cassette *cassette
+	key      string
+	typ      reflect.Type
+	value    interface{}
 }
 
 type resultResponse struct {
@@ -19,12 +18,12 @@ type resultResponse struct {
 	Value interface{}
 }
 
-func newResultRecorder(file *os.File, key string, value interface{}) *resultRecorder {
+func newResultRecorder(cassette *cassette, key string, value interface{}) *resultRecorder {
 	return &resultRecorder{
-		file:  file,
-		key:   key,
-		typ:   reflect.TypeOf(value),
-		value: value,
+		cassette: cassette,
+		key:      key,
+		typ:      reflect.TypeOf(value),
+		value:    value,
 	}
 }
 
@@ -45,6 +44,8 @@ func (r *resultRecorder) Playback() error {
 
 	err := rec.Playback()
 	if err != nil {
+		r.value = reflect.Zero(r.typ).Interface()
+
 		return err
 	}
 
@@ -70,9 +71,9 @@ func (r *resultRecorder) newRecord() record {
 	})
 
 	return record{
-		file:     r.file,
 		Kind:     KindResult,
 		Key:      r.key,
 		Response: response,
+		cassette: r.cassette,
 	}
 }

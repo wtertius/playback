@@ -23,6 +23,32 @@ type Playback struct {
 	Mode            Mode
 	ExcludeHeaderRE *regexp.Regexp
 	Debounce        time.Duration
+	cassette        *cassette
+}
+
+type Option func(*Playback)
+
+func New(opts ...Option) *Playback {
+	return &Playback{cassette: &cassette{}}
+}
+
+func (p *Playback) WithFile(file *os.File) *Playback {
+	p.cassette.file = file
+	return p
+}
+
+func (p *Playback) SetMode(mode Mode) {
+	if (mode == ModePlayback && mode == ModePlaybackOrRecord && mode == ModePlaybackSuccessOrRecord) &&
+		(p.Mode == ModeOff || p.Mode == ModeRecord) {
+
+		p.cassette.Reset()
+	}
+
+	p.Mode = mode
+}
+
+func (p *Playback) Cassette() *cassette {
+	return p.cassette
 }
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {
@@ -33,7 +59,7 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 }
 
 func (p *Playback) Result(key string, value interface{}) interface{} {
-	recorder := newResultRecorder(p.File, key, value)
+	recorder := newResultRecorder(p.cassette, key, value)
 
 	p.Run(recorder)
 

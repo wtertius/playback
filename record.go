@@ -2,7 +2,6 @@ package playback
 
 import (
 	"errors"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -33,25 +32,21 @@ type record struct {
 	Key      string
 	Request  string
 	Response string
+
+	cassette *cassette
 }
 
 func (r *record) RecordRequest() {
-	r.Write(r.casseteFile(), r.request)
+	//r.Write(r.casseteFile(), r.request)
 }
 
 func (r *record) RecordResponse() {
-	record := yamlMarshal([]*record{r})
-	r.Write(r.casseteFile(), record)
+	r.cassette.Add(r)
 }
 
 func yamlMarshal(value interface{}) string {
 	bytes, _ := yaml.Marshal(value)
 	return string(bytes)
-}
-
-func (r *record) Write(file *os.File, content string) {
-	file.WriteString(content)
-	file.Sync()
 }
 
 func (r *record) Playback() error {
@@ -64,41 +59,13 @@ func (r *record) Playback() error {
 }
 
 func (r *record) playback() error {
-	records, err := r.UnmarshalFromFile()
+	record, err := r.cassette.Get(r.Kind, r.Key)
 	if err != nil {
 		return err
 	}
 
-	for _, record := range records {
-		if record.Kind == r.Kind && record.Key == r.Key {
-			r.Request = record.Request
-			r.Response = record.Response
-			break
-		}
-	}
+	r.Request = record.Request
+	r.Response = record.Response
 
 	return nil
-}
-
-func (r *record) UnmarshalFromFile() ([]*record, error) {
-	request, err := ioutil.ReadFile(r.casseteFile().Name())
-	if err != nil {
-		return nil, err
-	}
-
-	if len(request) == 0 {
-		return nil, errPlaybackFailed
-	}
-
-	var records []*record
-	err = yaml.Unmarshal(request, &records)
-	if err != nil {
-		return nil, err
-	}
-
-	return records, nil
-}
-
-func (r *record) casseteFile() *os.File {
-	return r.file
 }
