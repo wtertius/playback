@@ -14,9 +14,10 @@ const (
 	BasenamePrefix = "playback."
 
 	KindResult = RecordKind("result")
+	KindHTTP   = RecordKind("http")
 )
 
-var errPlaybackFailed = errors.New("Playback failed")
+var ErrPlaybackFailed = errors.New("Playback failed")
 
 type record struct {
 	// TODO Obsolete - check
@@ -30,18 +31,29 @@ type record struct {
 	// TODO New fields
 	Kind     RecordKind
 	Key      string
+	ID       uint64
 	Request  string
 	Response string
 
 	cassette *cassette
 }
 
+func (r *record) Record() {
+	r.cassette.Add(r)
+}
+
 func (r *record) RecordRequest() {
-	//r.Write(r.casseteFile(), r.request)
+	// FIXME Remove me
+	r.Record()
 }
 
 func (r *record) RecordResponse() {
-	r.cassette.Add(r)
+	// FIXME Remove me
+	r.Record()
+}
+
+func (r *record) setID(id uint64) {
+	r.ID = id
 }
 
 func yamlMarshal(value interface{}) string {
@@ -52,7 +64,7 @@ func yamlMarshal(value interface{}) string {
 func (r *record) Playback() error {
 	err := r.playback()
 	if err != nil {
-		return errPlaybackFailed
+		return ErrPlaybackFailed
 	}
 
 	return nil

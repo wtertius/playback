@@ -34,7 +34,7 @@ func (r *resultRecorder) Call() error {
 func (r *resultRecorder) Record() error {
 	rec := r.newRecord()
 
-	rec.RecordResponse()
+	rec.Record()
 
 	return nil
 }
@@ -50,13 +50,13 @@ func (r *resultRecorder) Playback() error {
 	}
 
 	if rec.Response == "" {
-		return errPlaybackFailed
+		return ErrPlaybackFailed
 	}
 
 	var response *resultResponse
 	err = yaml.Unmarshal([]byte(rec.Response), &response)
 	if err != nil || response.Type != r.typ.String() {
-		return errPlaybackFailed
+		return ErrPlaybackFailed
 	}
 
 	r.value = response.Value

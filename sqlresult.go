@@ -48,7 +48,7 @@ func (r *sqlResultRecorder) Playback() error {
 	result := NewMockSQLDriverResult()
 	err = result.Unmarshal([]byte(rec.response))
 	if err != nil {
-		return errPlaybackFailed
+		return ErrPlaybackFailed
 	}
 
 	r.result, r.err = result, rec.err

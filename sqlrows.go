@@ -48,7 +48,7 @@ func (r *sqlRowsRecorder) Playback() error {
 	rows := NewMockSQLDriverRows()
 	err = rows.Unmarshal([]byte(rec.response))
 	if err != nil {
-		return errPlaybackFailed
+		return ErrPlaybackFailed
 	}
 
 	r.rows, r.err = rows, rec.err

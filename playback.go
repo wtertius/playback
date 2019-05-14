@@ -29,7 +29,7 @@ type Playback struct {
 type Option func(*Playback)
 
 func New(opts ...Option) *Playback {
-	return &Playback{cassette: &cassette{}}
+	return &Playback{cassette: newCassette()}
 }
 
 func (p *Playback) WithFile(file *os.File) *Playback {
@@ -97,7 +97,7 @@ func (p *Playback) Run(recorder Recorder) error {
 
 	case ModePlaybackOrRecord:
 		err := recorder.Playback()
-		if err == errPlaybackFailed {
+		if err == ErrPlaybackFailed {
 			return recorder.Record()
 		}
 		return err
