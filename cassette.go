@@ -2,8 +2,8 @@ package playback
 
 import (
 	"errors"
+	"io"
 	"io/ioutil"
-	"os"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -15,8 +15,9 @@ type track struct {
 	cursor  int
 	records []*record
 }
+
 type Cassette struct {
-	file       *os.File
+	writer     Writer
 	playback   *Playback
 	tracks     map[RecordKind]map[string]*track
 	err        error
@@ -70,7 +71,7 @@ func (c *Cassette) Result(key string, value interface{}) interface{} {
 
 func (c *Cassette) WithFile() (*Cassette, error) {
 	var err error
-	c.file, err = c.playback.newFileForCassette()
+	c.writer, err = c.playback.newFileForCassette()
 	return c, err
 }
 
@@ -102,8 +103,8 @@ func (c *Cassette) Lock() {
 	// TODO mu.Lock
 	c.locked = true
 
-	if c.file != nil {
-		c.file.Sync()
+	if c.writer != nil {
+		c.writer.Sync()
 	}
 }
 
@@ -132,13 +133,17 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 	return true
 }
 
-func (c *Cassette) Write(content string) error {
-	_, err := c.file.WriteString(content)
+func (c *Cassette) write(content string) error {
+	if c.writer == nil {
+		return nil
+	}
+
+	_, err := io.WriteString(c.writer, content)
 	if err != nil {
 		return err
 	}
 
-	err = c.file.Sync()
+	err = c.writer.Sync()
 	if err != nil {
 		return err
 	}
@@ -149,19 +154,23 @@ func (c *Cassette) Write(content string) error {
 func (c *Cassette) Finalize() error {
 	c.Lock()
 
-	return c.file.Close()
+	return c.writer.Close()
 }
 
-func (c *Cassette) casseteFile() *os.File {
-	return c.file
+func (c *Cassette) PathType() PathType {
+	if c.writer == nil {
+		return PathTypeNil
+	}
+
+	return c.writer.Type()
 }
 
-func (c *Cassette) Filename() string {
-	if c.file == nil {
+func (c *Cassette) PathName() string {
+	if c.writer == nil {
 		return ""
 	}
 
-	return c.file.Name()
+	return c.writer.Name()
 }
 
 func (c *Cassette) Get(kind RecordKind, key string) (r *record, err error) {
@@ -204,7 +213,7 @@ func (c *Cassette) Add(rec *record) error {
 
 	c.add(rec)
 	marshalled := yamlMarshal([]*record{rec})
-	return c.Write(marshalled)
+	return c.write(marshalled)
 }
 
 func (c *Cassette) add(rec *record) {

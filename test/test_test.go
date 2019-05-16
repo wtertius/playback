@@ -54,7 +54,7 @@ func TestCassete(t *testing.T) {
 		if err != nil {
 			t.Fatal("Can't create file for cassette")
 		}
-		defer removeFilename(t, cassette.Filename())
+		defer removeFilename(t, cassette.PathName())
 
 		key := "rand.Intn"
 
@@ -66,7 +66,7 @@ func TestCassete(t *testing.T) {
 			t.Fatal("can't finalize cassette")
 		}
 
-		cassette, err = p.CassetteFromFile(cassette.Filename())
+		cassette, err = p.CassetteFromFile(cassette.PathName())
 		if err != nil {
 			t.Fatal("Can't create cassette from file")
 		}
@@ -82,6 +82,7 @@ func TestCassete(t *testing.T) {
 		t.Run("Can lock cassette for record", func(t *testing.T) {
 			p := playback.New().WithFile()
 			cassette, _ := p.NewCassette()
+			defer removeFilename(t, cassette.PathName())
 
 			key := "rand.Intn"
 
@@ -97,7 +98,7 @@ func TestCassete(t *testing.T) {
 			assert.Error(t, cassette.Error())
 		})
 		t.Run("Can unlock cassette for record", func(t *testing.T) {
-			p := playback.New().WithFile()
+			p := playback.New()
 			cassette, _ := p.NewCassette()
 
 			key := "rand.Intn"
@@ -121,13 +122,16 @@ func TestCassete(t *testing.T) {
 			p := playback.New().WithFile()
 
 			cassette, _ := p.NewCassette()
-			assert.NotEqual(t, "", cassette.Filename())
+			defer removeFilename(t, cassette.PathName())
+			assert.NotEqual(t, "", cassette.PathName())
+			assert.Equal(t, playback.PathTypeFile, cassette.PathType())
 		})
-		t.Run("if OFF then doesn't create cassettes with file", func(t *testing.T) {
+		t.Run("if OFF then creates cassettes without file", func(t *testing.T) {
 			p := playback.New()
 
 			cassette, _ := p.NewCassette()
-			assert.Equal(t, "", cassette.Filename())
+			assert.Equal(t, "", cassette.PathName())
+			assert.Equal(t, playback.PathTypeNil, cassette.PathType())
 		})
 	})
 
@@ -140,7 +144,7 @@ func TestCassete(t *testing.T) {
 				p := playback.New().WithFile()
 
 				cassette, _ := p.NewCassette()
-				defer removeFilename(t, cassette.Filename())
+				defer removeFilename(t, cassette.PathName())
 
 				key := "rand.Intn"
 
@@ -149,7 +153,7 @@ func TestCassete(t *testing.T) {
 				cassette.Finalize()
 
 				p.SetMode(playback.ModePlayback)
-				cassette, _ = p.CassetteFromFile(cassette.Filename())
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
 				numberGot := cassette.Result(key, rand.Intn(randRange)).(int)
 
 				assert.Equal(t, numberExpected, numberGot)
@@ -161,6 +165,8 @@ func TestCassete(t *testing.T) {
 
 				p := playback.New().WithFile()
 				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
 				p.SetMode(playback.ModePlayback)
 
 				assert.Equal(t, 0, cassette.Result(key, rand.Intn(randRange)))
@@ -170,13 +176,14 @@ func TestCassete(t *testing.T) {
 			t.Run("can't replay twice if recorded once", func(t *testing.T) {
 				p := playback.New().WithFile()
 				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
 
 				key := "rand.Intn"
 
 				p.SetMode(playback.ModeRecord)
 				numberExpected := cassette.Result(key, rand.Intn(randRange)).(int)
 
-				cassette, _ = p.CassetteFromFile(cassette.Filename())
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 				p.SetMode(playback.ModePlayback)
 				assert.Equal(t, numberExpected, cassette.Result(key, rand.Intn(randRange)))
@@ -188,6 +195,7 @@ func TestCassete(t *testing.T) {
 			t.Run("can replay twice if recorded twice", func(t *testing.T) {
 				p := playback.New().WithFile()
 				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
 
 				key := "rand.Intn"
 
@@ -197,7 +205,7 @@ func TestCassete(t *testing.T) {
 				cassette.Result(key, expectedBody[0])
 				cassette.Result(key, expectedBody[1])
 
-				cassette, _ = p.CassetteFromFile(cassette.Filename())
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 				p.SetMode(playback.ModePlayback)
 				assert.Equal(t, expectedBody[0], cassette.Result(key, rand.Intn(randRange)))
@@ -209,6 +217,7 @@ func TestCassete(t *testing.T) {
 			t.Run("recorded twice, replayed once: IsPlaybackSucceeded is false", func(t *testing.T) {
 				p := playback.New().WithFile()
 				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
 
 				key := "rand.Intn"
 
@@ -218,7 +227,7 @@ func TestCassete(t *testing.T) {
 				cassette.Result(key, expectedBody[0])
 				cassette.Result(key, expectedBody[1])
 
-				cassette, _ = p.CassetteFromFile(cassette.Filename())
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 				p.SetMode(playback.ModePlayback)
 				assert.Equal(t, expectedBody[0], cassette.Result(key, rand.Intn(randRange)))
@@ -264,6 +273,7 @@ func TestCassete(t *testing.T) {
 			t.Run("replaying works", func(t *testing.T) {
 				p := playback.New().WithFile()
 				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
 
 				key := "rand.Intn"
 				f := func() interface{} { return rand.Intn(randRange) }
@@ -271,7 +281,7 @@ func TestCassete(t *testing.T) {
 				p.SetMode(playback.ModeRecord)
 				numberExpected := cassette.Result(key, f).(int)
 
-				cassette, _ = p.CassetteFromFile(cassette.Filename())
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 				p.SetMode(playback.ModePlayback)
 				numberGot := cassette.Result(key, f).(int)
@@ -285,6 +295,7 @@ func TestCassete(t *testing.T) {
 		t.Run("file contents are correct", func(t *testing.T) {
 			p := playback.New().WithFile()
 			cassette, _ := p.NewCassette()
+			defer removeFilename(t, cassette.PathName())
 
 			p.SetMode(playback.ModeRecord)
 
@@ -298,7 +309,7 @@ func TestCassete(t *testing.T) {
 				"  response: |\n" +
 				"    type: int\n" +
 				"    value: " + strconv.Itoa(numberExpected) + "\n"
-			contentsGot, err := ioutil.ReadFile(cassette.Filename())
+			contentsGot, err := ioutil.ReadFile(cassette.PathName())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -317,8 +328,7 @@ func TestCassete(t *testing.T) {
 		defer ts.Close()
 
 		t.Run("replaying works", func(t *testing.T) {
-			p := playback.New()
-			p.WithFile()
+			p := playback.New().WithFile()
 
 			httpClient := &http.Client{
 				Transport: p.HTTPTransport(http.DefaultTransport),
@@ -333,7 +343,8 @@ func TestCassete(t *testing.T) {
 			expectedBody, _ := ioutil.ReadAll(expectedResponse.Body)
 
 			cassette := playback.FromContext(ctx)
-			cassette.Rewind()
+			defer removeFilename(t, cassette.PathName())
+			cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 			p.SetMode(playback.ModePlayback)
 
@@ -371,6 +382,7 @@ func TestCassete(t *testing.T) {
 		t.Run("file contents are correct", func(t *testing.T) {
 			p := playback.New().WithFile()
 			cassette, _ := p.NewCassette()
+			defer removeFilename(t, cassette.PathName())
 
 			httpClient := &http.Client{
 				Transport: p.HTTPTransport(http.DefaultTransport),
@@ -409,7 +421,7 @@ func TestCassete(t *testing.T) {
 				"      - \"2\"\n" +
 				"    body: |\n" +
 				"      " + string(body) + ""
-			contentsGot, err := ioutil.ReadFile(cassette.Filename())
+			contentsGot, err := ioutil.ReadFile(cassette.PathName())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -420,6 +432,7 @@ func TestCassete(t *testing.T) {
 		t.Run("can record two cassettes in parallel", func(t *testing.T) {
 			p := playback.New().WithFile()
 			cassette, _ := p.NewCassette()
+			defer removeFilename(t, cassette.PathName())
 
 			httpClient := &http.Client{
 				Transport: p.HTTPTransport(http.DefaultTransport),
@@ -432,7 +445,7 @@ func TestCassete(t *testing.T) {
 			expectedResponse, _ := httpClient.Get(ts.URL)
 			expectedBody, _ := ioutil.ReadAll(expectedResponse.Body)
 
-			cassette, _ = p.CassetteFromFile(cassette.Filename())
+			cassette, _ = p.CassetteFromFile(cassette.PathName())
 
 			p.SetMode(playback.ModePlayback)
 
@@ -447,7 +460,6 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
-	// TODO Cassette is distinguished from file with interface
 	// TODO Can be used as http middleware at server
 	// TODO Can be used as grpc middleware at server
 	// TODO Can list created cassettes

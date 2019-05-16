@@ -5,7 +5,6 @@ import (
 	"database/sql/driver"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"regexp"
 	"time"
 
@@ -72,8 +71,9 @@ func (p *Playback) WithFile() *Playback {
 	return p
 }
 
-func (p *Playback) newFileForCassette() (*os.File, error) {
-	return ioutil.TempFile("", p.fileMask)
+func (p *Playback) newFileForCassette() (*file, error) {
+	f, err := ioutil.TempFile("", p.fileMask)
+	return &file{f}, err
 }
 
 func (p *Playback) SetMode(mode Mode) {
