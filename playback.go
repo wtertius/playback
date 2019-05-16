@@ -1,7 +1,9 @@
 package playback
 
 import (
+	"context"
 	"database/sql/driver"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
@@ -19,36 +21,64 @@ func Default() *Playback {
 }
 
 type Playback struct {
-	File            *os.File
 	Mode            Mode
 	ExcludeHeaderRE *regexp.Regexp
 	Debounce        time.Duration
-	cassette        *cassette
+	fileMask        string
+	withFile        bool
+	Error           error
 }
 
 type Option func(*Playback)
 
 func New(opts ...Option) *Playback {
-	return &Playback{cassette: newCassette()}
-}
+	p := &Playback{
+		fileMask: FileMask,
+	}
 
-func (p *Playback) WithFile(file *os.File) *Playback {
-	p.cassette.file = file
 	return p
 }
 
-func (p *Playback) SetMode(mode Mode) {
-	if (mode == ModePlayback && mode == ModePlaybackOrRecord && mode == ModePlaybackSuccessOrRecord) &&
-		(p.Mode == ModeOff || p.Mode == ModeRecord) {
-
-		p.cassette.Reset()
+func (p *Playback) NewCassette() (*Cassette, error) {
+	cassette := newCassette(p)
+	if p.withFile {
+		return cassette.WithFile()
 	}
 
-	p.Mode = mode
+	return cassette, nil
 }
 
-func (p *Playback) Cassette() *cassette {
-	return p.cassette
+func (p *Playback) NewContext(ctx context.Context) context.Context {
+	c, err := p.NewCassette()
+	if err != nil {
+		p.Error = err
+	}
+
+	return context.WithValue(ctx, contextKey, c)
+}
+
+func (p *Playback) NewContextWithCassette(ctx context.Context, cassette *Cassette) context.Context {
+	return context.WithValue(ctx, contextKey, cassette)
+}
+
+func (p *Playback) CassetteFromFile(filename string) (*Cassette, error) {
+	c, err := newCassetteFromFile(p, filename)
+	return c, err
+}
+
+func (p *Playback) WithFile() *Playback {
+	// TODO Lock
+	p.withFile = true
+	return p
+}
+
+func (p *Playback) newFileForCassette() (*os.File, error) {
+	return ioutil.TempFile("", p.fileMask)
+}
+
+func (p *Playback) SetMode(mode Mode) {
+	// TODO Lock
+	p.Mode = mode
 }
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {
@@ -56,14 +86,6 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 		Real:     transport,
 		playback: p,
 	}
-}
-
-func (p *Playback) Result(key string, value interface{}) interface{} {
-	recorder := newResultRecorder(p.cassette, key, value)
-
-	p.Run(recorder)
-
-	return recorder.value
 }
 
 func (p *Playback) SQLRows(query string, args []driver.NamedValue, f func() (driver.Rows, error)) (driver.Rows, error) {

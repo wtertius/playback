@@ -6,15 +6,11 @@ import (
 
 var contextKey = struct{}{}
 
-func NewContext(ctx context.Context, p *Playback) context.Context {
-	return context.WithValue(ctx, contextKey, p)
-}
-
-func FromContext(ctx context.Context) *Playback {
-	p, ok := ctx.Value(contextKey).(*Playback)
+func FromContext(ctx context.Context) *Cassette {
+	c, ok := ctx.Value(contextKey).(*Cassette)
 	if !ok {
-		return Default()
+		c, _ = Default().NewCassette()
 	}
 
-	return p
+	return c
 }

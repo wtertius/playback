@@ -11,7 +11,7 @@ import (
 type RecordKind string
 
 const (
-	BasenamePrefix = "playback."
+	FileMask = "playback.*.yml"
 
 	KindResult = RecordKind("result")
 	KindHTTP   = RecordKind("http")
@@ -35,7 +35,7 @@ type record struct {
 	Request  string
 	Response string
 
-	cassette *cassette
+	cassette *Cassette
 }
 
 func (r *record) Record() {

@@ -109,7 +109,7 @@ func (p *httpPlayback) newRecord(req *http.Request) record {
 		Kind:     KindHTTP,
 		Key:      key,
 		Request:  command,
-		cassette: p.playback.cassette,
+		cassette: FromContext(req.Context()),
 	}
 }
 

@@ -7,9 +7,9 @@ import (
 )
 
 func NewInterceptor(ctx context.Context) grpc.UnaryServerInterceptor {
-	playback := FromContext(ctx)
+	cassette := FromContext(ctx)
 	return func(ctx context.Context, request interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-		ctx = NewContext(ctx, playback)
+		ctx = cassette.playback.NewContext(ctx)
 
 		return handler(ctx, request)
 	}
