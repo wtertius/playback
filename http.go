@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/http/httputil"
 	"regexp"
 	"strings"
 
@@ -45,6 +46,9 @@ func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err erro
 
 func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 	rec := p.newRecord(req)
+	if rec == nil {
+		return nil, ErrPlaybackFailed
+	}
 
 	err := rec.Playback()
 	if err != nil {
@@ -68,6 +72,9 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
 	rec := p.newRecord(req)
+	if rec == nil {
+		return p.Real.RoundTrip(req)
+	}
 
 	rec.Record()
 
@@ -78,7 +85,7 @@ func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
 	return res, err
 }
 
-func (p *httpPlayback) RecordResponse(rec record, res *http.Response, err error) {
+func (p *httpPlayback) RecordResponse(rec *record, res *http.Response, err error) {
 	if res == nil {
 		rec.RecordResponse()
 		return
@@ -102,14 +109,22 @@ func (p *httpPlayback) RecordResponse(rec record, res *http.Response, err error)
 	rec.Record()
 }
 
-func (p *httpPlayback) newRecord(req *http.Request) record {
+func (p *httpPlayback) newRecord(req *http.Request) *record {
+	cassette := CassetteFromContext(req.Context())
+	if cassette == nil {
+		return nil
+	}
+
 	key, command := p.requestToCurl(req)
 
-	return record{
-		Kind:     KindHTTP,
-		Key:      key,
-		Request:  command,
-		cassette: FromContext(req.Context()),
+	requestDump, _ := httputil.DumpRequest(req, true)
+
+	return &record{
+		Kind:        KindHTTP,
+		Key:         key,
+		Request:     command,
+		RequestDump: string(requestDump),
+		cassette:    cassette,
 	}
 }
 

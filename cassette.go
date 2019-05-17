@@ -1,9 +1,12 @@
 package playback
 
 import (
+	"bufio"
 	"errors"
 	"io"
 	"io/ioutil"
+	"net/http"
+	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -35,6 +38,7 @@ func newCassette(p *Playback) *Cassette {
 
 func newCassetteFromFile(p *Playback, filename string) (*Cassette, error) {
 	c := &Cassette{playback: p}
+	c.writer = newNilNamed(PathTypeFile, filename)
 
 	dump, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -122,7 +126,11 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 		return false
 	}
 
-	for _, kindTracks := range c.tracks {
+	for kind, kindTracks := range c.tracks {
+		if kind == KindHTTPRequest {
+			continue
+		}
+
 		for _, keyTrack := range kindTracks {
 			if keyTrack.cursor != len(keyTrack.records) {
 				return false
@@ -134,7 +142,7 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 }
 
 func (c *Cassette) write(content string) error {
-	if c.writer == nil {
+	if c.writer == nil || c.writer.ReadOnly() {
 		return nil
 	}
 
@@ -173,7 +181,36 @@ func (c *Cassette) PathName() string {
 	return c.writer.Name()
 }
 
-func (c *Cassette) Get(kind RecordKind, key string) (r *record, err error) {
+func (c *Cassette) setID(rec *record) {
+	if rec.ID == 0 {
+		rec.setID(c.nextRecordID())
+	}
+}
+
+func (c *Cassette) nextRecordID() uint64 {
+	// TODO mutex.Lock ?
+	c.recID++
+	return c.recID
+}
+
+func (c *Cassette) HTTPRequest() (*http.Request, error) {
+	rec, err := c.Get(KindHTTPRequest, "")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(rec.RequestDump)))
+	return req, err
+}
+
+func (c *Cassette) SetHTTPRequest(req *http.Request) {
+	rec := (&httpPlayback{}).newRecord(req)
+	rec.Kind = KindHTTPRequest
+	rec.Key = ""
+	c.Add(rec)
+}
+
+func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
 	// TODO mutex.RLock
 	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
 		c.err = errCassetteGetFailed
@@ -186,22 +223,10 @@ func (c *Cassette) Get(kind RecordKind, key string) (r *record, err error) {
 		return nil, errCassetteGetFailed
 	}
 
-	rec := track.records[track.cursor]
+	rec = track.records[track.cursor]
 	track.cursor++
 
 	return rec, nil
-}
-
-func (c *Cassette) setID(rec *record) {
-	if rec.ID == 0 {
-		rec.setID(c.nextRecordID())
-	}
-}
-
-func (c *Cassette) nextRecordID() uint64 {
-	// TODO mutex.Lock ?
-	c.recID++
-	return c.recID
 }
 
 func (c *Cassette) Add(rec *record) error {

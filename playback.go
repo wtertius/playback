@@ -1,7 +1,6 @@
 package playback
 
 import (
-	"context"
 	"database/sql/driver"
 	"io/ioutil"
 	"net/http"
@@ -45,19 +44,6 @@ func (p *Playback) NewCassette() (*Cassette, error) {
 	}
 
 	return cassette, nil
-}
-
-func (p *Playback) NewContext(ctx context.Context) context.Context {
-	c, err := p.NewCassette()
-	if err != nil {
-		p.Error = err
-	}
-
-	return context.WithValue(ctx, contextKey, c)
-}
-
-func (p *Playback) NewContextWithCassette(ctx context.Context, cassette *Cassette) context.Context {
-	return context.WithValue(ctx, contextKey, cassette)
 }
 
 func (p *Playback) CassetteFromFile(filename string) (*Cassette, error) {

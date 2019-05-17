@@ -13,8 +13,9 @@ type RecordKind string
 const (
 	FileMask = "playback.*.yml"
 
-	KindResult = RecordKind("result")
-	KindHTTP   = RecordKind("http")
+	KindResult      = RecordKind("result")
+	KindHTTP        = RecordKind("http")
+	KindHTTPRequest = RecordKind("http_request")
 )
 
 var ErrPlaybackFailed = errors.New("Playback failed")
@@ -29,11 +30,12 @@ type record struct {
 	err      error
 
 	// TODO New fields
-	Kind     RecordKind
-	Key      string
-	ID       uint64
-	Request  string
-	Response string
+	Kind        RecordKind
+	Key         string
+	ID          uint64
+	Request     string
+	RequestDump string
+	Response    string
 
 	cassette *Cassette
 }
