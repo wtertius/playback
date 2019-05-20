@@ -1,12 +1,10 @@
 package playback
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -141,6 +139,20 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 	return true
 }
 
+func (c *Cassette) IsHTTPResponseCorrect(res *http.Response) bool {
+	req, err := c.HTTPRequest()
+	if err != nil {
+		return false
+	}
+
+	res = httpDeleteHeaders(httpCopyResponse(res, req))
+
+	resExpected, _ := c.HTTPResponse(req)
+	resExpected = httpDeleteHeaders(httpCopyResponse(resExpected, req))
+
+	return httpDumpResponse(res) == httpDumpResponse(resExpected)
+}
+
 func (c *Cassette) write(content string) error {
 	if c.writer == nil || c.writer.ReadOnly() {
 		return nil
@@ -194,20 +206,44 @@ func (c *Cassette) nextRecordID() uint64 {
 }
 
 func (c *Cassette) HTTPRequest() (*http.Request, error) {
-	rec, err := c.Get(KindHTTPRequest, "")
+	rec, err := c.GetLast(KindHTTPRequest, "")
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(rec.RequestDump)))
+	req, err := httpReadRequest(rec.RequestDump)
 	return req, err
 }
 
 func (c *Cassette) SetHTTPRequest(req *http.Request) {
+	rec := c.getHTTPRecord(req)
+	c.Add(rec)
+}
+
+func (c *Cassette) getHTTPRecord(req *http.Request) *record {
 	rec := (&httpPlayback{}).newRecord(req)
 	rec.Kind = KindHTTPRequest
 	rec.Key = ""
-	c.Add(rec)
+
+	return rec
+}
+
+func (c *Cassette) SetHTTPResponse(req *http.Request, res *http.Response) {
+	rec, err := c.GetLast(KindHTTPRequest, "")
+	if err != nil {
+		rec = c.getHTTPRecord(req)
+	}
+
+	(&httpPlayback{}).RecordResponse(rec, res, nil)
+}
+
+func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
+	rec, err := c.GetLast(KindHTTPRequest, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return httpReadResponse(rec.Response, req)
 }
 
 func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
@@ -225,6 +261,24 @@ func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
 
 	rec = track.records[track.cursor]
 	track.cursor++
+
+	return rec, nil
+}
+
+func (c *Cassette) GetLast(kind RecordKind, key string) (rec *record, err error) {
+	// TODO mutex.RLock
+	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
+		c.err = errCassetteGetFailed
+		return nil, errCassetteGetFailed
+	}
+
+	track := c.tracks[kind][key]
+	if len(track.records) == 0 {
+		c.err = errCassetteGetFailed
+		return nil, errCassetteGetFailed
+	}
+
+	rec = track.records[len(track.records)-1]
 
 	return rec, nil
 }

@@ -1,18 +1,15 @@
 package playback
 
 import (
-	"bytes"
+	"bufio"
 	"crypto/md5"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"regexp"
 	"strings"
 
 	"github.com/moul/http2curl"
-
-	yaml "gopkg.in/yaml.v2"
 )
 
 var _ http.RoundTripper = httpPlayback{}
@@ -55,19 +52,12 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	var response *httpResponseRecord
-	err = yaml.Unmarshal([]byte(rec.Response), &response)
+	res, err := httpReadResponse(rec.Response, req)
 	if err != nil {
 		return nil, ErrPlaybackFailed
 	}
 
-	res := http.Response{
-		StatusCode: response.StatusCode,
-		Body:       ioutil.NopCloser(bytes.NewBuffer([]byte(response.Body))),
-		Header:     response.Header,
-	}
-
-	return &res, rec.err
+	return res, rec.err
 }
 
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
@@ -91,22 +81,19 @@ func (p *httpPlayback) RecordResponse(rec *record, res *http.Response, err error
 		return
 	}
 
-	response := httpResponseRecord{
-		Header:     res.Header,
-		StatusCode: res.StatusCode,
-	}
-
-	if res.Body != http.NoBody {
-		body, _ := ioutil.ReadAll(res.Body)
-		res.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-
-		response.Body = string(body)
-	}
-
-	rec.Response = yamlMarshal(response)
+	rec.Response = httpDumpResponse(res)
 	rec.err = err
 
 	rec.Record()
+}
+
+func httpDumpResponse(res *http.Response) string {
+	if res == nil {
+		return ""
+	}
+
+	response, _ := httputil.DumpResponse(res, true)
+	return string(response)
 }
 
 func (p *httpPlayback) newRecord(req *http.Request) *record {
@@ -115,14 +102,19 @@ func (p *httpPlayback) newRecord(req *http.Request) *record {
 		return nil
 	}
 
-	key, command := p.requestToCurl(req)
+	header := req.Header
+	req.Header = p.excludeHeader(req.Header)
 
+	curl := requestToCurl(req)
 	requestDump, _ := httputil.DumpRequest(req, true)
+	key := req.URL.Path + "?" + calcMD5(requestDump)
+
+	req.Header = header
 
 	return &record{
 		Kind:        KindHTTP,
 		Key:         key,
-		Request:     command,
+		Request:     curl,
 		RequestDump: string(requestDump),
 		cassette:    cassette,
 	}
@@ -144,26 +136,35 @@ func (p *httpPlayback) excludeHeader(header http.Header) http.Header {
 	return filtered
 }
 
-func calcMD5(data string) string {
-	return fmt.Sprintf("%x", md5.Sum([]byte(data)))
+func calcMD5(data []byte) string {
+	return fmt.Sprintf("%x", md5.Sum(data))
 }
 
-func (p *httpPlayback) requestToCurl(req *http.Request) (key string, curl string) {
-	header := req.Header
-	req.Header = p.excludeHeader(req.Header)
-
-	key, curl = RequestToCurl(req)
-
-	req.Header = header
-
-	return key, curl
-}
-
-func RequestToCurl(req *http.Request) (key string, curl string) {
+func requestToCurl(req *http.Request) (curl string) {
 	command, _ := http2curl.GetCurlCommand(req)
-	curl = command.String()
+	return command.String()
+}
 
-	key = strings.Replace(req.URL.Path, "/", "", -1) + "_" + calcMD5(curl)
+func httpReadRequest(dump string) (*http.Request, error) {
+	return http.ReadRequest(bufioReader(dump))
+}
 
-	return key, curl
+func httpReadResponse(dump string, req *http.Request) (*http.Response, error) {
+	return http.ReadResponse(bufioReader(dump), req)
+}
+
+func bufioReader(str string) *bufio.Reader {
+	return bufio.NewReader(strings.NewReader(str))
+}
+
+func httpCopyResponse(res *http.Response, req *http.Request) *http.Response {
+	res, _ = httpReadResponse(httpDumpResponse(res), req)
+	return res
+}
+
+func httpDeleteHeaders(res *http.Response) *http.Response {
+	res.Header.Del(HeaderMode)
+	res.Header.Del(HeaderSuccess)
+
+	return res
 }

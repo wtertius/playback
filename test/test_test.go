@@ -2,12 +2,14 @@ package test
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
@@ -399,7 +401,7 @@ func TestCassete(t *testing.T) {
 				response, _ := httpClient.Do(req)
 				body, _ := ioutil.ReadAll(response.Body)
 
-				key, _ := playback.RequestToCurl(req)
+				key := keyOfRequest(req)
 
 				contentsCommon := "" +
 					"- kind: http\n" +
@@ -412,19 +414,9 @@ func TestCassete(t *testing.T) {
 					"  response: \"\"\n" +
 
 					contentsCommon +
-					"  response: |\n" +
-					"    statuscode: 200\n" +
-					"    header:\n" +
-					"      Content-Length:\n" +
-					"      - \"9\"\n" +
-					"      Content-Type:\n" +
-					"      - text/plain; charset=utf-8\n" +
-					"      Date:\n" +
-					"      - " + response.Header.Get("Date") + "\n" +
-					"      Hi:\n" +
-					"      - \"2\"\n" +
-					"    body: |\n" +
-					"      " + string(body) + ""
+					`  response: "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\nDate:` + "\n" +
+					`    ` + response.Header.Get("Date") + `\r\nHi: 2\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n"
+
 				contentsGot, err := ioutil.ReadFile(cassette.PathName())
 				if err != nil {
 					t.Fatal(err)
@@ -509,6 +501,7 @@ func TestCassete(t *testing.T) {
 
 				body, _ := ioutil.ReadAll(resp.Body)
 				assert.Equal(t, expected, string(body))
+				assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
 
 				p.SetMode(playback.ModePlayback)
 				cassettePathName := resp.Header.Get(playback.HeaderCassettePathName)
@@ -523,11 +516,14 @@ func TestCassete(t *testing.T) {
 					w = httptest.NewRecorder()
 					handler.ServeHTTP(w, req)
 
-					resp = w.Result()
-					body, _ = ioutil.ReadAll(resp.Body)
-					assert.Equal(t, expected, string(body))
+					resp := w.Result()
 
 					assert.True(t, cassette.IsPlaybackSucceeded())
+					assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+					assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+
+					body, _ = ioutil.ReadAll(resp.Body)
+					assert.Equal(t, expected, string(body))
 				})
 
 				t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
@@ -538,12 +534,13 @@ func TestCassete(t *testing.T) {
 					w = httptest.NewRecorder()
 					handler.ServeHTTP(w, req)
 
-					resp = w.Result()
+					resp := w.Result()
 					body, _ = ioutil.ReadAll(resp.Body)
 					assert.Equal(t, expected, string(body))
 
 					assert.Equal(t, playback.ModePlayback, playback.Mode(resp.Header.Get(playback.HeaderMode)))
 					assert.Equal(t, cassettePathName, resp.Header.Get(playback.HeaderCassettePathName))
+					assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
 				})
 
 				t.Run("request is recorded to the cassette", func(t *testing.T) {
@@ -556,16 +553,30 @@ func TestCassete(t *testing.T) {
 
 					assert.Equal(t, reqExpected, reqGot)
 				})
+
+				t.Run("response is recorded to the cassette", func(t *testing.T) {
+					respGot, err := cassette.HTTPResponse(req)
+					assert.Nil(t, err)
+
+					responseDumpGot, _ := httputil.DumpResponse(respGot, false)
+					responseDumpExpected, _ := httputil.DumpResponse(resp, false)
+
+					bodyGot, _ := ioutil.ReadAll(respGot.Body)
+
+					assert.Equal(t, responseDumpExpected, responseDumpGot)
+					assert.Equal(t, body, bodyGot)
+				})
 			})
 		})
 	})
 
-	// TODO Can record request and response and check them after play
+	// TODO record http with error status
 	// TODO Can record background cassette and link it with per call cassettes
 	// TODO Can record and playback separate cassettes in parallel
 	// TODO Can be used as grpc middleware at server
 	// TODO Can list created cassettes
 	// TODO Can finalize cassette and drop it from active cassettes list
+	// TODO Bypass all recordings/playbacks in ModeOff
 }
 
 func tempFile(t *testing.T, mask string) *os.File {
@@ -582,4 +593,15 @@ func removeFilename(t *testing.T, filename string) {
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatalf("Can't remove file %s", filename)
 	}
+}
+
+func keyOfRequest(req *http.Request) string {
+	requestDump, _ := httputil.DumpRequest(req, true)
+	key := req.URL.Path + "?" + calcMD5(requestDump)
+
+	return key
+}
+
+func calcMD5(data []byte) string {
+	return fmt.Sprintf("%x", md5.Sum(data))
 }

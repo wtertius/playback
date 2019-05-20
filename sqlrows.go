@@ -63,7 +63,7 @@ func (r *sqlRowsRecorder) newRecord() record {
 	}
 
 	return record{
-		basename: "sql_rows." + calcMD5(r.query+args),
+		basename: "sql_rows." + calcMD5([]byte(r.query+args)),
 		request:  r.query,
 	}
 }

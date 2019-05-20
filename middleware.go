@@ -1,6 +1,7 @@
 package playback
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -25,15 +26,26 @@ func (p *Playback) NewMiddleware(next http.Handler) http.Handler {
 		ctx = NewContextWithCassette(ctx, cassette)
 		req = req.WithContext(ctx)
 
-		cassette.SetHTTPRequest(req)
+		if p.Mode == ModeRecord {
+			cassette.SetHTTPRequest(req)
+		}
 
-		w.Header().Set(HeaderCassettePathType, string(cassette.PathType()))
-		w.Header().Set(HeaderCassettePathName, cassette.PathName())
-		w.Header().Set(HeaderMode, string(p.Mode))
+		rw := multiplexHTTPResponseWriter(w, p.Mode)
+		rw.Header().Set(HeaderCassettePathType, string(cassette.PathType()))
+		rw.Header().Set(HeaderCassettePathName, cassette.PathName())
+		rw.Header().Set(HeaderMode, string(p.Mode))
 
-		// TODO Record request
-		// TODO Record response
+		next.ServeHTTP(rw, req)
 
-		next.ServeHTTP(w, req)
+		res := rw.Result()
+
+		if p.Mode == ModeRecord {
+			rw.Header().Set(HeaderSuccess, "true")
+			cassette.SetHTTPResponse(req, res)
+		} else if p.Mode == ModePlayback {
+			rw.Header().Set(HeaderSuccess, fmt.Sprintf("%t", cassette.IsHTTPResponseCorrect(res) && cassette.IsPlaybackSucceeded()))
+
+			rw.Flush()
+		}
 	})
 }
