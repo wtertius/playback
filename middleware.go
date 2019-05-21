@@ -12,7 +12,7 @@ const (
 	HeaderSuccess          = "x-playback-success"
 )
 
-func (p *Playback) NewMiddleware(next http.Handler) http.Handler {
+func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		cassette := CassetteFromContext(ctx)

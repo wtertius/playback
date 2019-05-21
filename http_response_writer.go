@@ -41,7 +41,9 @@ func (w httpResponseWriter) Write(data []byte) (int, error) {
 
 func (w httpResponseWriter) WriteHeader(code int) {
 	w.slave.WriteHeader(code)
-	w.master.WriteHeader(code)
+	if !w.isDelayed {
+		w.master.WriteHeader(code)
+	}
 }
 
 func (w httpResponseWriter) Result() *http.Response {
@@ -55,7 +57,8 @@ func (w httpResponseWriter) Flush() {
 
 	res := w.Result()
 
-	body, _ := ioutil.ReadAll(res.Body)
+	w.master.WriteHeader(res.StatusCode)
 
+	body, _ := ioutil.ReadAll(res.Body)
 	w.master.Write(body)
 }

@@ -455,119 +455,139 @@ func TestCassete(t *testing.T) {
 				assert.True(t, cassette.IsPlaybackSucceeded())
 			})
 		})
-		t.Run("server", func(t *testing.T) {
-			serverResponse := "served"
-			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Done", serverResponse)
-				fmt.Fprintf(w, serverResponse)
-			}))
-			defer ts.Close()
 
-			// TODO Can be used as http middleware at server
-			t.Run("creates cassette on record", func(t *testing.T) {
-				p := playback.New().WithFile()
+		tests := []struct {
+			title          string
+			serverFails    bool
+			expectedStatus int
+			expectedBody   string
+		}{{
+			title:          "server returns ok",
+			serverFails:    false,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "served10",
+		}, {
+			title:          "server returns error",
+			serverFails:    true,
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "",
+		}}
 
-				resultResponse := "10"
-
-				httpClient := &http.Client{
-					Transport: p.HTTPTransport(http.DefaultTransport),
-				}
-				handler := p.NewMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					resultStr := playback.CassetteFromContext(r.Context()).Result("test", resultResponse).(string)
-					req, _ := http.NewRequest("GET", ts.URL, nil)
-					req = req.WithContext(playback.ProxyCassetteContext(r.Context()))
-					httpResponse, err := httpClient.Do(req)
-					if err != nil {
+		for _, test := range tests {
+			t.Run(test.title, func(t *testing.T) {
+				serverResponse := "served"
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Failed", serverResponse)
+					if test.serverFails {
 						w.WriteHeader(http.StatusInternalServerError)
-						return
 					}
-
-					httpBytes, _ := ioutil.ReadAll(httpResponse.Body)
-					io.WriteString(w, string(httpBytes)+resultStr)
+					fmt.Fprintf(w, serverResponse)
 				}))
+				defer ts.Close()
 
-				expected := serverResponse + resultResponse
+				t.Run("creates cassette on record", func(t *testing.T) {
+					p := playback.New().WithFile()
 
-				p.SetMode(playback.ModeRecord)
+					resultResponse := "10"
 
-				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
-				w := httptest.NewRecorder()
-				handler.ServeHTTP(w, req)
+					httpClient := &http.Client{
+						Transport: p.HTTPTransport(http.DefaultTransport),
+					}
+					handler := p.NewHTTPMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						resultStr := playback.CassetteFromContext(r.Context()).Result("test", resultResponse).(string)
+						req, _ := http.NewRequest("GET", ts.URL, nil)
+						req = req.WithContext(playback.ProxyCassetteContext(r.Context()))
+						httpResponse, err := httpClient.Do(req)
+						if err != nil || httpResponse.StatusCode != http.StatusOK {
+							w.WriteHeader(http.StatusInternalServerError)
+							return
+						}
 
-				resp := w.Result()
+						httpBytes, _ := ioutil.ReadAll(httpResponse.Body)
+						io.WriteString(w, string(httpBytes)+resultStr)
+					}))
 
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				assert.Equal(t, string(playback.PathTypeFile), resp.Header.Get(playback.HeaderCassettePathType))
+					p.SetMode(playback.ModeRecord)
 
-				body, _ := ioutil.ReadAll(resp.Body)
-				assert.Equal(t, expected, string(body))
-				assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
-
-				p.SetMode(playback.ModePlayback)
-				cassettePathName := resp.Header.Get(playback.HeaderCassettePathName)
-
-				cassette, _ := p.CassetteFromFile(cassettePathName)
-				defer removeFilename(t, cassette.PathName())
-
-				t.Run("playbacks from cassette in context", func(t *testing.T) {
-					cassette, _ := p.CassetteFromFile(cassettePathName)
-					req := req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
-
-					w = httptest.NewRecorder()
-					handler.ServeHTTP(w, req)
-
-					resp := w.Result()
-
-					assert.True(t, cassette.IsPlaybackSucceeded())
-					assert.True(t, cassette.IsHTTPResponseCorrect(resp))
-					assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
-
-					body, _ = ioutil.ReadAll(resp.Body)
-					assert.Equal(t, expected, string(body))
-				})
-
-				t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
 					req := httptest.NewRequest("GET", "http://example.com/foo", nil)
-					req.Header.Set(playback.HeaderCassettePathName, cassettePathName)
-					req.Header.Set(playback.HeaderCassettePathType, string(playback.PathTypeFile))
-
-					w = httptest.NewRecorder()
+					w := httptest.NewRecorder()
 					handler.ServeHTTP(w, req)
 
 					resp := w.Result()
-					body, _ = ioutil.ReadAll(resp.Body)
-					assert.Equal(t, expected, string(body))
 
-					assert.Equal(t, playback.ModePlayback, playback.Mode(resp.Header.Get(playback.HeaderMode)))
-					assert.Equal(t, cassettePathName, resp.Header.Get(playback.HeaderCassettePathName))
-					assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
-				})
+					assert.Equal(t, test.expectedStatus, resp.StatusCode)
+					assert.Equal(t, string(playback.PathTypeFile), resp.Header.Get(playback.HeaderCassettePathType))
 
-				t.Run("request is recorded to the cassette", func(t *testing.T) {
-					reqGot, err := cassette.HTTPRequest()
-					assert.Nil(t, err)
+					body, _ := ioutil.ReadAll(resp.Body)
+					assert.Equal(t, test.expectedBody, string(body))
+					assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
 
-					reqGot = reqGot.WithContext(context.Background())
-					reqExpected := req.WithContext(context.Background())
-					reqExpected.RemoteAddr = ""
+					p.SetMode(playback.ModePlayback)
+					cassettePathName := resp.Header.Get(playback.HeaderCassettePathName)
 
-					assert.Equal(t, reqExpected, reqGot)
-				})
+					cassette, _ := p.CassetteFromFile(cassettePathName)
+					defer removeFilename(t, cassette.PathName())
 
-				t.Run("response is recorded to the cassette", func(t *testing.T) {
-					respGot, err := cassette.HTTPResponse(req)
-					assert.Nil(t, err)
+					t.Run("playbacks from cassette in context", func(t *testing.T) {
+						cassette, _ := p.CassetteFromFile(cassettePathName)
+						req := req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
 
-					responseDumpGot, _ := httputil.DumpResponse(respGot, false)
-					responseDumpExpected, _ := httputil.DumpResponse(resp, false)
+						w = httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
 
-					bodyGot, _ := ioutil.ReadAll(respGot.Body)
+						resp := w.Result()
 
-					assert.Equal(t, responseDumpExpected, responseDumpGot)
-					assert.Equal(t, body, bodyGot)
+						assert.True(t, cassette.IsPlaybackSucceeded())
+						assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+						assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+
+						body, _ = ioutil.ReadAll(resp.Body)
+						assert.Equal(t, test.expectedBody, string(body))
+					})
+
+					t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
+						req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+						req.Header.Set(playback.HeaderCassettePathName, cassettePathName)
+						req.Header.Set(playback.HeaderCassettePathType, string(playback.PathTypeFile))
+
+						w = httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
+
+						resp := w.Result()
+						body, _ = ioutil.ReadAll(resp.Body)
+						assert.Equal(t, test.expectedBody, string(body))
+
+						assert.Equal(t, playback.ModePlayback, playback.Mode(resp.Header.Get(playback.HeaderMode)))
+						assert.Equal(t, cassettePathName, resp.Header.Get(playback.HeaderCassettePathName))
+						assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+					})
+
+					t.Run("request is recorded to the cassette", func(t *testing.T) {
+						reqGot, err := cassette.HTTPRequest()
+						assert.Nil(t, err)
+
+						reqGot = reqGot.WithContext(context.Background())
+						reqExpected := req.WithContext(context.Background())
+						reqExpected.RemoteAddr = ""
+
+						assert.Equal(t, reqExpected, reqGot)
+					})
+
+					t.Run("response is recorded to the cassette", func(t *testing.T) {
+						respGot, err := cassette.HTTPResponse(req)
+						assert.Nil(t, err)
+
+						responseDumpGot, _ := httputil.DumpResponse(respGot, false)
+						responseDumpExpected, _ := httputil.DumpResponse(resp, false)
+
+						bodyGot, _ := ioutil.ReadAll(respGot.Body)
+
+						assert.Equal(t, responseDumpExpected, responseDumpGot)
+						assert.Equal(t, body, bodyGot)
+					})
 				})
 			})
-		})
+		}
 	})
 
 	// TODO record http with error status
