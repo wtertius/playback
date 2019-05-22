@@ -27,7 +27,6 @@ type record struct {
 	file     *os.File
 	request  string
 	response string
-	err      error
 
 	// TODO New fields
 	Kind        RecordKind
@@ -36,6 +35,7 @@ type record struct {
 	Request     string
 	RequestDump string
 	Response    string
+	Err         RecordError
 
 	cassette *Cassette
 }
@@ -80,6 +80,7 @@ func (r *record) playback() error {
 
 	r.Request = record.Request
 	r.Response = record.Response
+	r.Err = record.Err
 
 	return nil
 }

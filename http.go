@@ -57,7 +57,7 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 		return nil, ErrPlaybackFailed
 	}
 
-	return res, rec.err
+	return res, rec.Err.error
 }
 
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
@@ -76,13 +76,8 @@ func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
 }
 
 func (p *httpPlayback) RecordResponse(rec *record, res *http.Response, err error) {
-	if res == nil {
-		rec.RecordResponse()
-		return
-	}
-
 	rec.Response = httpDumpResponse(res)
-	rec.err = err
+	rec.Err = RecordError{err}
 
 	rec.Record()
 }
@@ -150,6 +145,9 @@ func httpReadRequest(dump string) (*http.Request, error) {
 }
 
 func httpReadResponse(dump string, req *http.Request) (*http.Response, error) {
+	if dump == "" {
+		return nil, nil
+	}
 	return http.ReadResponse(bufioReader(dump), req)
 }
 

@@ -313,7 +313,8 @@ func TestCassete(t *testing.T) {
 				"  requestdump: \"\"\n" +
 				"  response: |\n" +
 				"    type: int\n" +
-				"    value: " + strconv.Itoa(numberExpected) + "\n"
+				"    value: " + strconv.Itoa(numberExpected) + "\n" +
+				"  err: null\n"
 			contentsGot, err := ioutil.ReadFile(cassette.PathName())
 			if err != nil {
 				t.Fatal(err)
@@ -412,10 +413,12 @@ func TestCassete(t *testing.T) {
 				contentsExpected := "" +
 					contentsCommon +
 					"  response: \"\"\n" +
+					"  err: null\n" +
 
 					contentsCommon +
 					`  response: "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\nDate:` + "\n" +
-					`    ` + response.Header.Get("Date") + `\r\nHi: 2\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n"
+					`    ` + response.Header.Get("Date") + `\r\nHi: 2\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n" +
+					"  err: null\n"
 
 				contentsGot, err := ioutil.ReadFile(cassette.PathName())
 				if err != nil {
@@ -459,6 +462,7 @@ func TestCassete(t *testing.T) {
 		tests := []struct {
 			title          string
 			serverFails    bool
+			serverTimeout  bool
 			expectedStatus int
 			expectedBody   string
 		}{{
@@ -469,6 +473,12 @@ func TestCassete(t *testing.T) {
 		}, {
 			title:          "server returns error",
 			serverFails:    true,
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "",
+		}, {
+			title:          "server timeout",
+			serverFails:    false,
+			serverTimeout:  true,
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "",
 		}}
@@ -497,9 +507,17 @@ func TestCassete(t *testing.T) {
 						resultStr := playback.CassetteFromContext(r.Context()).Result("test", resultResponse).(string)
 						req, _ := http.NewRequest("GET", ts.URL, nil)
 						req = req.WithContext(playback.ProxyCassetteContext(r.Context()))
+						if test.serverTimeout {
+							ctx, cancel := context.WithTimeout(req.Context(), time.Nanosecond)
+							defer cancel()
+							req = req.WithContext(ctx)
+						}
 						httpResponse, err := httpClient.Do(req)
-						if err != nil || httpResponse.StatusCode != http.StatusOK {
+						if err != nil {
 							w.WriteHeader(http.StatusInternalServerError)
+							return
+						} else if httpResponse.StatusCode != http.StatusOK {
+							w.WriteHeader(httpResponse.StatusCode)
 							return
 						}
 
@@ -523,10 +541,11 @@ func TestCassete(t *testing.T) {
 					assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
 
 					p.SetMode(playback.ModePlayback)
+
 					cassettePathName := resp.Header.Get(playback.HeaderCassettePathName)
+					defer removeFilename(t, cassettePathName)
 
 					cassette, _ := p.CassetteFromFile(cassettePathName)
-					defer removeFilename(t, cassette.PathName())
 
 					t.Run("playbacks from cassette in context", func(t *testing.T) {
 						cassette, _ := p.CassetteFromFile(cassettePathName)
@@ -590,9 +609,12 @@ func TestCassete(t *testing.T) {
 		}
 	})
 
-	// TODO record http with error status
-	// TODO Can record background cassette and link it with per call cassettes
+	// TODO Check Func panic case
+	// TODO By default write only when response is got
+	// TODO Can set sync mode: immediately on record addition to cassette or automatically
+	// TODO Force record to be synced to file on panic
 	// TODO Can record and playback separate cassettes in parallel
+	// TODO Can record background cassette and link it with per call cassettes
 	// TODO Can be used as grpc middleware at server
 	// TODO Can list created cassettes
 	// TODO Can finalize cassette and drop it from active cassettes list

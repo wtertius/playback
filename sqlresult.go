@@ -51,7 +51,7 @@ func (r *sqlResultRecorder) Playback() error {
 		return ErrPlaybackFailed
 	}
 
-	r.result, r.err = result, rec.err
+	r.result, r.err = result, rec.Err
 
 	return nil
 }

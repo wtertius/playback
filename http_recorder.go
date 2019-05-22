@@ -1,6 +1,8 @@
 package playback
 
-import "net/http"
+import (
+	"net/http"
+)
 
 type httpRecorder struct {
 	httpPlayback *httpPlayback
