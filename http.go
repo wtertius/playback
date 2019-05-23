@@ -57,6 +57,8 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 		return nil, ErrPlaybackFailed
 	}
 
+	rec.PanicIfHas()
+
 	return res, rec.Err.error
 }
 
