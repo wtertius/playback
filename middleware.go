@@ -23,26 +23,28 @@ func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 			cassette, _ = p.NewCassette()
 		}
 
+		mode := cassette.Mode()
+
 		ctx = NewContextWithCassette(ctx, cassette)
 		req = req.WithContext(ctx)
 
-		if p.Mode == ModeRecord {
+		if mode == ModeRecord {
 			cassette.SetHTTPRequest(req)
 		}
 
-		rw := multiplexHTTPResponseWriter(w, p.Mode)
+		rw := multiplexHTTPResponseWriter(w, mode)
 		rw.Header().Set(HeaderCassettePathType, string(cassette.PathType()))
 		rw.Header().Set(HeaderCassettePathName, cassette.PathName())
-		rw.Header().Set(HeaderMode, string(p.Mode))
+		rw.Header().Set(HeaderMode, string(mode))
 
 		next.ServeHTTP(rw, req)
 
 		res := rw.Result()
 
-		if p.Mode == ModeRecord {
+		if mode == ModeRecord {
 			rw.Header().Set(HeaderSuccess, "true")
 			cassette.SetHTTPResponse(req, res)
-		} else if p.Mode == ModePlayback {
+		} else if mode == ModePlayback {
 			rw.Header().Set(HeaderSuccess, fmt.Sprintf("%t", cassette.IsHTTPResponseCorrect(res) && cassette.IsPlaybackSucceeded()))
 
 			rw.Flush()

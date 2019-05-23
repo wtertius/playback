@@ -1,7 +1,6 @@
 package playback
 
 import (
-	"database/sql/driver"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -12,14 +11,14 @@ import (
 
 func Default() *Playback {
 	return &Playback{
-		Mode:            Mode(viper.GetString(FlagPlaybackMode)),
+		mode:            Mode(viper.GetString(FlagPlaybackMode)),
 		ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
 		Debounce:        2 * time.Second,
 	}
 }
 
 type Playback struct {
-	Mode            Mode
+	mode            Mode
 	ExcludeHeaderRE *regexp.Regexp
 	Debounce        time.Duration
 	fileMask        string
@@ -51,6 +50,11 @@ func (p *Playback) CassetteFromFile(filename string) (*Cassette, error) {
 	return c, err
 }
 
+func (p *Playback) Mode() Mode {
+	// TODO mutex.RLock
+	return p.mode
+}
+
 func (p *Playback) WithFile() *Playback {
 	// TODO Lock
 	p.withFile = true
@@ -62,9 +66,11 @@ func (p *Playback) newFileForCassette() (*file, error) {
 	return &file{f}, err
 }
 
-func (p *Playback) SetMode(mode Mode) {
+func (p *Playback) SetDefaultMode(mode Mode) *Playback {
 	// TODO Lock
-	p.Mode = mode
+	p.mode = mode
+
+	return p
 }
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {
@@ -74,6 +80,7 @@ func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper 
 	}
 }
 
+/* FIXME Remove or repair
 func (p *Playback) SQLRows(query string, args []driver.NamedValue, f func() (driver.Rows, error)) (driver.Rows, error) {
 	recorder := newSQLRowsRecorder(query, args, f)
 
@@ -89,38 +96,10 @@ func (p *Playback) SQLResult(query string, args []driver.NamedValue, f func() (d
 
 	return recorder.result, recorder.err
 }
+*/
 
 type Recorder interface {
 	Call() error
 	Record() error
 	Playback() error
-}
-
-func (p *Playback) Run(recorder Recorder) error {
-	switch p.Mode {
-	case ModeOff:
-		return recorder.Call()
-	case ModePlayback:
-		return recorder.Playback()
-
-	case ModePlaybackOrRecord:
-		err := recorder.Playback()
-		if err == ErrPlaybackFailed {
-			return recorder.Record()
-		}
-		return err
-
-	case ModePlaybackSuccessOrRecord:
-		err := recorder.Playback()
-		if err != nil {
-			return recorder.Record()
-		}
-		return err
-
-	case ModeRecord:
-		return recorder.Record()
-
-	}
-
-	return recorder.Call()
 }
