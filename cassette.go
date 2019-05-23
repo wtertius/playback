@@ -199,7 +199,10 @@ func (c *Cassette) Sync() error {
 func (c *Cassette) Finalize() error {
 	c.Lock()
 
-	return c.writer.Close()
+	if c.writer != nil {
+		return c.writer.Close()
+	}
+	return nil
 }
 
 func (c *Cassette) PathType() PathType {

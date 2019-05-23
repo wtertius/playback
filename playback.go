@@ -3,27 +3,21 @@ package playback
 import (
 	"io/ioutil"
 	"net/http"
-	"regexp"
-	"time"
 
 	"github.com/spf13/viper"
 )
 
 func Default() *Playback {
 	return &Playback{
-		mode:            Mode(viper.GetString(FlagPlaybackMode)),
-		ExcludeHeaderRE: regexp.MustCompile("-Trace$|id$"),
-		Debounce:        2 * time.Second,
+		defaultMode: Mode(viper.GetString(FlagPlaybackMode)),
 	}
 }
 
 type Playback struct {
-	mode            Mode
-	ExcludeHeaderRE *regexp.Regexp
-	Debounce        time.Duration
-	fileMask        string
-	withFile        bool
-	Error           error
+	defaultMode Mode
+	fileMask    string
+	withFile    bool
+	Error       error
 }
 
 type Option func(*Playback)
@@ -52,7 +46,7 @@ func (p *Playback) CassetteFromFile(filename string) (*Cassette, error) {
 
 func (p *Playback) Mode() Mode {
 	// TODO mutex.RLock
-	return p.mode
+	return p.defaultMode
 }
 
 func (p *Playback) WithFile() *Playback {
@@ -68,7 +62,7 @@ func (p *Playback) newFileForCassette() (*file, error) {
 
 func (p *Playback) SetDefaultMode(mode Mode) *Playback {
 	// TODO Lock
-	p.mode = mode
+	p.defaultMode = mode
 
 	return p
 }

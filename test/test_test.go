@@ -259,6 +259,47 @@ func TestCassete(t *testing.T) {
 				assert.True(t, cassettes[0].IsPlaybackSucceeded())
 				assert.True(t, cassettes[1].IsPlaybackSucceeded())
 			})
+
+			t.Run("can record and playback separate cassettes in parallel", func(t *testing.T) {
+				p := playback.New().SetDefaultMode(playback.ModeRecord)
+
+				key := "rand.Intn"
+
+				expectedBody := []int{10, 30}
+				gotBody := make([]int, 2)
+
+				cassettes := make([]*playback.Cassette, 2)
+				cassettes[0], _ = p.NewCassette()
+				cassettes[1], _ = p.NewCassette()
+
+				cassettes[0].Result(key, expectedBody[0])
+				cassettes[0].Finalize()
+				cassettes[0].Rewind()
+				cassettes[0].SetMode(playback.ModePlayback)
+
+				var wg sync.WaitGroup
+				wg.Add(2)
+				go func() {
+					defer wg.Done()
+					gotBody[0] = cassettes[0].Result(key, rand.Intn(randRange)).(int)
+				}()
+				go func() {
+					defer wg.Done()
+					cassettes[1].Result(key, expectedBody[1])
+				}()
+				wg.Wait()
+
+				cassettes[0].SetMode(playback.ModePlayback)
+				cassettes[1].SetMode(playback.ModePlayback)
+
+				gotBody[1] = cassettes[1].Result(key, rand.Intn(randRange)).(int)
+
+				assert.Equal(t, expectedBody[0], gotBody[0])
+				assert.Equal(t, expectedBody[1], gotBody[1])
+
+				assert.True(t, cassettes[0].IsPlaybackSucceeded())
+				assert.True(t, cassettes[1].IsPlaybackSucceeded())
+			})
 		})
 
 		t.Run("func", func(t *testing.T) {
@@ -444,35 +485,6 @@ func TestCassete(t *testing.T) {
 				}
 
 				assert.Equal(t, contentsExpected, string(contentsGot))
-			})
-
-			t.Run("can record two cassettes in parallel", func(t *testing.T) {
-				p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
-				cassette, _ := p.NewCassette()
-				defer removeFilename(t, cassette.PathName())
-
-				httpClient := &http.Client{
-					Transport: p.HTTPTransport(http.DefaultTransport),
-				}
-
-				// TODO Can record and playback separate cassettes in parallel
-				return
-
-				expectedResponse, _ := httpClient.Get(ts.URL)
-				expectedBody, _ := ioutil.ReadAll(expectedResponse.Body)
-
-				cassette, _ = p.CassetteFromFile(cassette.PathName())
-
-				cassette.SetMode(playback.ModePlayback)
-
-				gotResponse, _ := httpClient.Get(ts.URL)
-				gotBody, _ := ioutil.ReadAll(gotResponse.Body)
-
-				assert.Equal(t, expectedBody, gotBody)
-				assert.Equal(t, expectedResponse.StatusCode, gotResponse.StatusCode)
-				assert.Equal(t, expectedResponse.Header, gotResponse.Header)
-
-				assert.True(t, cassette.IsPlaybackSucceeded())
 			})
 		})
 
