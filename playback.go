@@ -1,7 +1,6 @@
 package playback
 
 import (
-	"io/ioutil"
 	"net/http"
 
 	"github.com/spf13/viper"
@@ -32,6 +31,11 @@ func New(opts ...Option) *Playback {
 
 func (p *Playback) NewCassette() (*Cassette, error) {
 	cassette := newCassette(p)
+
+	if p.defaultMode == ModeOff {
+		return cassette, nil
+	}
+
 	if p.withFile {
 		return cassette.WithFile()
 	}
@@ -53,11 +57,6 @@ func (p *Playback) WithFile() *Playback {
 	// TODO Lock
 	p.withFile = true
 	return p
-}
-
-func (p *Playback) newFileForCassette() (*file, error) {
-	f, err := ioutil.TempFile("", p.fileMask)
-	return &file{f}, err
 }
 
 func (p *Playback) SetDefaultMode(mode Mode) *Playback {

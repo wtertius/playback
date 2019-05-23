@@ -415,9 +415,9 @@ func TestCassete(t *testing.T) {
 				gotResponse, _ := httpClient.Do(req)
 				gotBody, _ := ioutil.ReadAll(gotResponse.Body)
 
-				assert.Equal(t, expectedBody, gotBody)
 				assert.Equal(t, expectedResponse.StatusCode, gotResponse.StatusCode)
 				assert.Equal(t, expectedResponse.Header, gotResponse.Header)
+				assert.Equal(t, expectedBody, gotBody)
 
 				assert.True(t, cassette.IsPlaybackSucceeded())
 			})
@@ -485,6 +485,53 @@ func TestCassete(t *testing.T) {
 				}
 
 				assert.Equal(t, contentsExpected, string(contentsGot))
+			})
+
+			t.Run("replaying is off by default", func(t *testing.T) {
+				p := playback.New().WithFile()
+
+				httpClient := &http.Client{
+					Transport: p.HTTPTransport(http.DefaultTransport),
+				}
+
+				req, _ := http.NewRequest("GET", ts.URL, nil)
+				ctx := p.NewContext(req.Context())
+				req = req.WithContext(ctx)
+				expectedResponse, _ := httpClient.Do(req)
+				expectedBody, _ := ioutil.ReadAll(expectedResponse.Body)
+
+				cassette := playback.CassetteFromContext(ctx)
+				defer removeFilename(t, cassette.PathName())
+
+				req, _ = http.NewRequest("GET", ts.URL, nil)
+				req = req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
+				gotResponse, _ := httpClient.Do(req)
+				gotBody, _ := ioutil.ReadAll(gotResponse.Body)
+
+				assert.Equal(t, expectedResponse.StatusCode, gotResponse.StatusCode)
+				assert.NotEqual(t, expectedResponse.Header, gotResponse.Header)
+				assert.NotEqual(t, expectedBody, gotBody)
+
+				assert.False(t, cassette.IsPlaybackSucceeded())
+			})
+
+			t.Run("can run without cassette", func(t *testing.T) {
+				p := playback.New()
+
+				httpClient := &http.Client{
+					Transport: p.HTTPTransport(http.DefaultTransport),
+				}
+
+				req, _ := http.NewRequest("GET", ts.URL, nil)
+				response, _ := httpClient.Do(req)
+				body, _ := ioutil.ReadAll(response.Body)
+
+				cassette := playback.CassetteFromContext(req.Context())
+				assert.Nil(t, cassette)
+
+				assert.Equal(t, response.StatusCode, http.StatusOK)
+				assert.NotNil(t, response.Header)
+				assert.NotEqual(t, []byte{}, body)
 			})
 		})
 
@@ -633,8 +680,6 @@ func TestCassete(t *testing.T) {
 			})
 		}
 	})
-
-	// TODO Bypass all recordings/playbacks in ModeOff
 
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes

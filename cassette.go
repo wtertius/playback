@@ -88,8 +88,13 @@ func (c *Cassette) SetMode(mode Mode) {
 
 func (c *Cassette) WithFile() (*Cassette, error) {
 	var err error
-	c.writer, err = c.playback.newFileForCassette()
+	c.writer, err = c.newFileForCassette()
 	return c, err
+}
+
+func (c *Cassette) newFileForCassette() (*file, error) {
+	f, err := ioutil.TempFile("", c.playback.fileMask)
+	return &file{f}, err
 }
 
 func (c *Cassette) SetSyncMode(syncMode SyncMode) {
@@ -139,7 +144,7 @@ func (c *Cassette) Error() error {
 }
 
 func (c *Cassette) IsPlaybackSucceeded() bool {
-	if c.mode != ModePlayback || c.err != nil {
+	if c == nil || c.mode != ModePlayback || c.err != nil {
 		return false
 	}
 
@@ -346,6 +351,10 @@ func (c *Cassette) add(rec *record) {
 }
 
 func (c *Cassette) Run(recorder Recorder) error {
+	if c == nil {
+		return recorder.Call()
+	}
+
 	switch c.mode {
 	case ModeOff:
 		return recorder.Call()
