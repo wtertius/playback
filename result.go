@@ -11,6 +11,7 @@ type resultRecorder struct {
 	key      string
 	typ      reflect.Type
 	value    interface{}
+	panic    interface{}
 }
 
 type resultResponse struct {
@@ -42,8 +43,10 @@ func (r *resultRecorder) Record() error {
 		Type:  r.typ.String(),
 		Value: r.value,
 	})
+	rec.Panic = r.panic
 
 	rec.Record()
+	rec.PanicIfHas()
 
 	return nil
 }
@@ -69,6 +72,7 @@ func (r *resultRecorder) Playback() error {
 	}
 
 	r.value = response.Value
+	rec.PanicIfHas()
 
 	return nil
 }
@@ -104,6 +108,12 @@ func (r *resultRecorder) applyIfFunc() {
 		return
 	}
 
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			r.panic = recovered
+			r.value = reflect.Zero(val.Type().Out(0)).Interface()
+		}
+	}()
 	results := val.Call([]reflect.Value{})
 	r.value = results[0].Interface()
 }

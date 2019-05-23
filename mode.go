@@ -19,3 +19,10 @@ const (
 	ModePlaybackOrRecord        Mode = "PlaybackOrRecord"
 	ModePlaybackSuccessOrRecord Mode = "PlaybackSuccessOrRecord"
 )
+
+type SyncMode string
+
+const (
+	SyncModeDefault     SyncMode = ""
+	SyncModeEveryChange SyncMode = "EveryTime"
+)

@@ -25,6 +25,7 @@ type Cassette struct {
 	recID      uint64
 	recordByID map[uint64]*record
 	locked     bool
+	syncMode   SyncMode
 }
 
 func newCassette(p *Playback) *Cassette {
@@ -77,6 +78,10 @@ func (c *Cassette) WithFile() (*Cassette, error) {
 	return c, err
 }
 
+func (c *Cassette) SetSyncMode(syncMode SyncMode) {
+	c.syncMode = syncMode
+}
+
 func (c *Cassette) Rewind() {
 	c.err = nil
 
@@ -106,7 +111,7 @@ func (c *Cassette) Lock() {
 	c.locked = true
 
 	if c.writer != nil {
-		c.writer.Sync()
+		c.Sync()
 	}
 }
 
@@ -163,12 +168,18 @@ func (c *Cassette) write(content string) error {
 		return err
 	}
 
-	err = c.writer.Sync()
-	if err != nil {
-		return err
+	if c.syncMode == SyncModeEveryChange {
+		err = c.Sync()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (c *Cassette) Sync() error {
+	return c.writer.Sync()
 }
 
 func (c *Cassette) Finalize() error {

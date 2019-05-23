@@ -36,6 +36,7 @@ type record struct {
 	RequestDump string
 	Response    string
 	Err         RecordError
+	Panic       interface{}
 
 	cassette *Cassette
 }
@@ -45,8 +46,9 @@ func (r *record) Record() {
 }
 
 func (r *record) RecordRequest() {
-	// FIXME Remove me
-	r.Record()
+	if r.cassette.syncMode == SyncModeEveryChange {
+		r.Record()
+	}
 }
 
 func (r *record) RecordResponse() {
@@ -81,6 +83,16 @@ func (r *record) playback() error {
 	r.Request = record.Request
 	r.Response = record.Response
 	r.Err = record.Err
+	r.Panic = record.Panic
 
 	return nil
+}
+
+func (r *record) PanicIfHas() {
+	if r.Panic == nil {
+		return
+	}
+
+	r.cassette.Sync()
+	panic(r.Panic)
 }

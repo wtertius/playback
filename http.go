@@ -63,16 +63,31 @@ func (p *httpPlayback) Playback(req *http.Request) (*http.Response, error) {
 func (p *httpPlayback) Record(req *http.Request) (*http.Response, error) {
 	rec := p.newRecord(req)
 	if rec == nil {
-		return p.Real.RoundTrip(req)
+		return p.call(rec, req)
 	}
 
-	rec.Record()
+	rec.RecordRequest()
 
-	res, err := p.Real.RoundTrip(req)
+	res, err := p.call(rec, req)
 
 	p.RecordResponse(rec, res, err)
+	rec.PanicIfHas()
 
 	return res, err
+}
+
+func (p *httpPlayback) call(rec *record, req *http.Request) (*http.Response, error) {
+	defer func() {
+		if rec == nil {
+			return
+		}
+
+		if recovered := recover(); recovered != nil {
+			rec.Panic = recovered
+		}
+	}()
+
+	return p.Real.RoundTrip(req)
 }
 
 func (p *httpPlayback) RecordResponse(rec *record, res *http.Response, err error) {

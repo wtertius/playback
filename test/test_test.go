@@ -293,7 +293,42 @@ func TestCassete(t *testing.T) {
 				assert.Equal(t, numberExpected, numberGot)
 				assert.True(t, cassette.IsPlaybackSucceeded())
 			})
-			// TODO? result.Func can return error.
+			t.Run("panic is recorded and can be replayed", func(t *testing.T) {
+				p := playback.New().WithFile()
+				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
+				type Panic struct{ ErrDetails string }
+				key := "rand.Intn"
+				f := func() int {
+					panic("PANIC")
+					return rand.Intn(randRange)
+				}
+
+				p.SetMode(playback.ModeRecord)
+				func() {
+					defer func() {
+						r := recover()
+						assert.Equal(t, "PANIC", r)
+					}()
+
+					number := cassette.Result(key, f).(int)
+					assert.IsType(t, int(1), number)
+				}()
+
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
+				p.SetMode(playback.ModePlayback)
+
+				func() {
+					defer func() {
+						r := recover()
+						assert.Equal(t, "PANIC", r)
+					}()
+
+					number := cassette.Result(key, f).(int)
+					assert.IsType(t, int(1), number)
+				}()
+			})
 		})
 
 		t.Run("file contents are correct", func(t *testing.T) {
@@ -314,7 +349,8 @@ func TestCassete(t *testing.T) {
 				"  response: |\n" +
 				"    type: int\n" +
 				"    value: " + strconv.Itoa(numberExpected) + "\n" +
-				"  err: null\n"
+				"  err: null\n" +
+				"  panic: null\n"
 			contentsGot, err := ioutil.ReadFile(cassette.PathName())
 			if err != nil {
 				t.Fatal(err)
@@ -391,6 +427,8 @@ func TestCassete(t *testing.T) {
 				cassette, _ := p.NewCassette()
 				defer removeFilename(t, cassette.PathName())
 
+				cassette.SetSyncMode(playback.SyncModeEveryChange)
+
 				httpClient := &http.Client{
 					Transport: p.HTTPTransport(http.DefaultTransport),
 				}
@@ -414,11 +452,13 @@ func TestCassete(t *testing.T) {
 					contentsCommon +
 					"  response: \"\"\n" +
 					"  err: null\n" +
+					"  panic: null\n" +
 
 					contentsCommon +
 					`  response: "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\nDate:` + "\n" +
 					`    ` + response.Header.Get("Date") + `\r\nHi: 2\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n" +
-					"  err: null\n"
+					"  err: null\n" +
+					"  panic: null\n"
 
 				contentsGot, err := ioutil.ReadFile(cassette.PathName())
 				if err != nil {
@@ -609,10 +649,7 @@ func TestCassete(t *testing.T) {
 		}
 	})
 
-	// TODO Check Func panic case
-	// TODO By default write only when response is got
-	// TODO Can set sync mode: immediately on record addition to cassette or automatically
-	// TODO Force record to be synced to file on panic
+	// TODO? result.Func can return error.
 	// TODO Can record and playback separate cassettes in parallel
 	// TODO Can record background cassette and link it with per call cassettes
 	// TODO Can be used as grpc middleware at server
