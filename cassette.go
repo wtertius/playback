@@ -1,6 +1,7 @@
 package playback
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -18,6 +19,8 @@ type track struct {
 }
 
 type Cassette struct {
+	ID string
+
 	writer     Writer
 	playback   *Playback
 	tracks     map[RecordKind]map[string]*track
@@ -31,32 +34,43 @@ type Cassette struct {
 
 func newCassette(p *Playback) *Cassette {
 	c := &Cassette{playback: p}
+	c.ID = p.generateID()
 	c.reset()
 	c.mode = p.Mode()
+
+	p.Add(c)
 
 	return c
 }
 
 func newCassetteFromFile(p *Playback, filename string) (*Cassette, error) {
-	c := &Cassette{playback: p}
-	c.writer = newNilNamed(PathTypeFile, filename)
-
 	dump, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 
+	c, err := newCassetteFromYAML(p, dump)
+	if err != nil {
+		return c, err
+	}
+
+	c.writer = newNilNamed(PathTypeFile, filename)
+
+	return c, nil
+}
+
+func newCassetteFromYAML(p *Playback, dump []byte) (*Cassette, error) {
 	if len(dump) == 0 {
 		return nil, ErrPlaybackFailed
 	}
 
 	var records []*record
-	err = yaml.Unmarshal(dump, &records)
+	err := yaml.Unmarshal(dump, &records)
 	if err != nil {
 		return nil, err
 	}
 
-	c.reset()
+	c := newCassette(p)
 
 	for _, rec := range records {
 		// TODO mutex.Lock
@@ -69,7 +83,7 @@ func newCassetteFromFile(p *Playback, filename string) (*Cassette, error) {
 }
 
 func (c *Cassette) Result(key string, value interface{}) interface{} {
-	recorder := newResultRecorder(c, key, value)
+	recorder := newResultRecorder(c, key, value, nil)
 
 	c.Run(recorder)
 
@@ -249,14 +263,15 @@ func (c *Cassette) HTTPRequest() (*http.Request, error) {
 }
 
 func (c *Cassette) SetHTTPRequest(req *http.Request) {
-	rec := c.getHTTPRecord(req)
+	rec := c.buildHTTPRecord(req)
 	c.Add(rec)
 }
 
-func (c *Cassette) getHTTPRecord(req *http.Request) *record {
+func (c *Cassette) buildHTTPRecord(req *http.Request) *record {
 	rec := newHTTPRecorder(nil, req).newRecord(req)
 	rec.Kind = KindHTTPRequest
 	rec.Key = ""
+	rec.cassette = c
 
 	return rec
 }
@@ -264,10 +279,27 @@ func (c *Cassette) getHTTPRecord(req *http.Request) *record {
 func (c *Cassette) SetHTTPResponse(req *http.Request, res *http.Response) {
 	rec, err := c.GetLast(KindHTTPRequest, "")
 	if err != nil {
-		rec = c.getHTTPRecord(req)
+		rec = c.buildHTTPRecord(req)
 	}
 
-	(&httpRecorder{}).RecordResponse(rec, res, nil)
+	(&HTTPRecorder{rec: rec}).RecordResponse(res, nil)
+}
+
+func (c *Cassette) AddHTTPRecord(req *http.Request, res *http.Response, err error) *HTTPRecorder {
+	recorder := &HTTPRecorder{cassette: c}
+	recorder.newRecord(req)
+	if res == nil && err == nil {
+		recorder.rec.RecordRequest()
+		return recorder
+	}
+
+	recorder.RecordResponse(res, nil)
+	return recorder
+}
+
+func (c *Cassette) AddResultRecord(key string, value interface{}, panicObject interface{}) {
+	recorder := newResultRecorder(c, key, value, panicObject)
+	recorder.record()
 }
 
 func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
@@ -324,7 +356,7 @@ func (c *Cassette) Add(rec *record) error {
 	}
 
 	c.add(rec)
-	marshalled := yamlMarshal([]*record{rec})
+	marshalled := yamlMarshalString([]*record{rec})
 	return c.write(marshalled)
 }
 
@@ -348,6 +380,17 @@ func (c *Cassette) add(rec *record) {
 	}
 	track := c.tracks[rec.Kind][rec.Key]
 	track.records = append(track.records, rec)
+}
+
+func (c *Cassette) MarshalToYAML() []byte {
+	var buf bytes.Buffer
+	for _, kindTracks := range c.tracks {
+		for _, keyTrack := range kindTracks {
+			buf.Write(yamlMarshal(keyTrack.records))
+		}
+	}
+
+	return buf.Bytes()
 }
 
 func (c *Cassette) Run(recorder Recorder) error {

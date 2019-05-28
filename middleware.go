@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	HeaderCassetteID       = "x-playback-id"
 	HeaderCassettePathType = "x-playback-path-type"
 	HeaderCassettePathName = "x-playback-path-name"
 	HeaderMode             = "x-playback-mode"
@@ -18,6 +19,11 @@ func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 		cassette := CassetteFromContext(ctx)
 		if cassette == nil && PathTypeFile == PathType(req.Header.Get(HeaderCassettePathType)) {
 			cassette, _ = p.CassetteFromFile(req.Header.Get(HeaderCassettePathName))
+		}
+		if cassette == nil {
+			if id := req.Header.Get(HeaderCassetteID); id != "" {
+				cassette = p.cassettes[id]
+			}
 		}
 		if cassette == nil {
 			cassette, _ = p.NewCassette()
@@ -33,8 +39,12 @@ func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 		}
 
 		rw := multiplexHTTPResponseWriter(w, mode)
-		rw.Header().Set(HeaderCassettePathType, string(cassette.PathType()))
-		rw.Header().Set(HeaderCassettePathName, cassette.PathName())
+		if pathType := cassette.PathType(); pathType != PathTypeNil {
+			rw.Header().Set(HeaderCassettePathType, string(pathType))
+		}
+		if pathName := cassette.PathName(); pathName != "" {
+			rw.Header().Set(HeaderCassettePathName, pathName)
+		}
 		rw.Header().Set(HeaderMode, string(mode))
 
 		next.ServeHTTP(rw, req)

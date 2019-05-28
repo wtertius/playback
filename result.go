@@ -19,7 +19,7 @@ type resultResponse struct {
 	Value interface{}
 }
 
-func newResultRecorder(cassette *Cassette, key string, value interface{}) *resultRecorder {
+func newResultRecorder(cassette *Cassette, key string, value interface{}, panicObject interface{}) *resultRecorder {
 	r := &resultRecorder{
 		cassette: cassette,
 		key:      key,
@@ -36,19 +36,26 @@ func (r *resultRecorder) Call() error {
 }
 
 func (r *resultRecorder) Record() error {
+	rec := r.record()
+
+	rec.PanicIfHas()
+
+	return nil
+}
+
+func (r *resultRecorder) record() record {
 	r.applyIfFunc()
 	rec := r.newRecord()
 
-	rec.Response = yamlMarshal(&resultResponse{
+	rec.Response = yamlMarshalString(&resultResponse{
 		Type:  r.typ.String(),
 		Value: r.value,
 	})
 	rec.Panic = r.panic
 
 	rec.Record()
-	rec.PanicIfHas()
 
-	return nil
+	return rec
 }
 
 func (r *resultRecorder) Playback() error {

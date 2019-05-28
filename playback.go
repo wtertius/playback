@@ -13,17 +13,20 @@ func Default() *Playback {
 }
 
 type Playback struct {
+	Error error
+
 	defaultMode Mode
 	fileMask    string
 	withFile    bool
-	Error       error
+	cassettes   map[string]*Cassette
 }
 
 type Option func(*Playback)
 
 func New(opts ...Option) *Playback {
 	p := &Playback{
-		fileMask: FileMask,
+		fileMask:  FileMask,
+		cassettes: make(map[string]*Cassette),
 	}
 
 	return p
@@ -44,8 +47,11 @@ func (p *Playback) NewCassette() (*Cassette, error) {
 }
 
 func (p *Playback) CassetteFromFile(filename string) (*Cassette, error) {
-	c, err := newCassetteFromFile(p, filename)
-	return c, err
+	return newCassetteFromFile(p, filename)
+}
+
+func (p *Playback) CassetteFromYAML(yamlBody []byte) (*Cassette, error) {
+	return newCassetteFromYAML(p, yamlBody)
 }
 
 func (p *Playback) Mode() Mode {
@@ -90,6 +96,27 @@ func (p *Playback) SQLResult(query string, args []driver.NamedValue, f func() (d
 	return recorder.result, recorder.err
 }
 */
+
+func (p *Playback) generateID() string {
+	id := RandStringRunes(6)
+	if p.cassettes[id] != nil {
+		return p.generateID()
+	}
+
+	return id
+}
+
+func (p *Playback) List() map[string]*Cassette {
+	return p.cassettes
+}
+
+func (p *Playback) Add(cassette *Cassette) {
+	p.cassettes[cassette.ID] = cassette
+}
+
+func (p *Playback) Get(cassetteID string) *Cassette {
+	return p.cassettes[cassetteID]
+}
 
 type Recorder interface {
 	Call() error

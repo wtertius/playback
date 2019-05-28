@@ -60,9 +60,13 @@ func (r *record) setID(id uint64) {
 	r.ID = id
 }
 
-func yamlMarshal(value interface{}) string {
+func yamlMarshalString(value interface{}) string {
+	return string(yamlMarshal(value))
+}
+
+func yamlMarshal(value interface{}) []byte {
 	bytes, _ := yaml.Marshal(value)
-	return string(bytes)
+	return bytes
 }
 
 func (r *record) Playback() error {

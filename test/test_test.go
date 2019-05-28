@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"fmt"
@@ -20,12 +21,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wtertius/playback"
+	"github.com/wtertius/playback/httphelper"
 )
 
 func TestCassete(t *testing.T) {
 	t.Run("passing cassette through context", func(t *testing.T) {
 		t.Run("NewContext", func(t *testing.T) {
-			p := &playback.Playback{}
+			p := playback.New()
 
 			ctx := context.Background()
 			ctx = p.NewContext(ctx)
@@ -35,7 +37,7 @@ func TestCassete(t *testing.T) {
 			assert.IsType(t, &playback.Cassette{}, cassette)
 		})
 		t.Run("playback.NewContextWithCassette", func(t *testing.T) {
-			p := &playback.Playback{}
+			p := playback.New()
 
 			cassette, _ := p.NewCassette()
 
@@ -383,6 +385,65 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
+	t.Run("cassette can be marshaled to yaml string", func(t *testing.T) {
+		p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+		cassette, _ := p.NewCassette()
+		defer removeFilename(t, cassette.PathName())
+
+		key := "rand.Intn"
+		cassette.Result(key, 10)
+
+		contentsFile, err := ioutil.ReadFile(cassette.PathName())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, string(contentsFile), string(cassette.MarshalToYAML()))
+	})
+	t.Run("cassette can be unmarshaled from yaml string", func(t *testing.T) {
+		p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+		cassette, _ := p.NewCassette()
+		defer removeFilename(t, cassette.PathName())
+
+		key := "rand.Intn"
+		cassette.Result(key, 10)
+
+		contentsFile, err := ioutil.ReadFile(cassette.PathName())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cassette, _ = p.CassetteFromYAML(contentsFile)
+		assert.Equal(t, string(contentsFile), string(cassette.MarshalToYAML()))
+	})
+
+	t.Run("cassette can be unmarshaled from yaml string", func(t *testing.T) {
+		cassettes := make(map[string]*playback.Cassette, 3)
+		p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+		cassette, _ := p.NewCassette()
+		cassettes[cassette.ID] = cassette
+		defer removeFilename(t, cassette.PathName())
+
+		key := "rand.Intn"
+		cassette.Result(key, 10)
+
+		pathName := cassette.PathName()
+		contentsFile, err := ioutil.ReadFile(pathName)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		cassette, _ = p.CassetteFromYAML(contentsFile)
+		cassettes[cassette.ID] = cassette
+		cassette, _ = p.CassetteFromFile(pathName)
+		cassettes[cassette.ID] = cassette
+
+		list := p.List()
+		assert.Equal(t, 3, len(cassettes))
+		assert.Equal(t, len(cassettes), len(list))
+		assert.Equal(t, cassettes, list)
+	})
+
 	t.Run("playback.Http: record and playback", func(t *testing.T) {
 		t.Run("caller", func(t *testing.T) {
 			counter := 0
@@ -636,6 +697,22 @@ func TestCassete(t *testing.T) {
 						assert.Equal(t, test.expectedBody, string(body))
 					})
 
+					t.Run("playbacks from cassette id in request headers", func(t *testing.T) {
+						req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+						req.Header.Set(playback.HeaderCassetteID, cassette.ID)
+
+						w = httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
+
+						resp := w.Result()
+						body, _ = ioutil.ReadAll(resp.Body)
+						assert.Equal(t, test.expectedBody, string(body))
+
+						assert.Equal(t, playback.ModePlayback, playback.Mode(resp.Header.Get(playback.HeaderMode)))
+						assert.Equal(t, cassettePathName, resp.Header.Get(playback.HeaderCassettePathName))
+						assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+					})
+
 					t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
 						req := httptest.NewRequest("GET", "http://example.com/foo", nil)
 						req.Header.Set(playback.HeaderCassettePathName, cassettePathName)
@@ -679,8 +756,165 @@ func TestCassete(t *testing.T) {
 				})
 			})
 		}
+
+		t.Run("Make cassette manually and playback", func(t *testing.T) {
+			p := playback.New()
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+			defer ts.Close()
+
+			httpClient := &http.Client{
+				Transport: p.HTTPTransport(http.DefaultTransport),
+			}
+
+			handler := p.NewHTTPMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				resultStr := playback.CassetteFromContext(r.Context()).Result("test", "not expected").(string)
+				req, _ := http.NewRequest("GET", ts.URL, nil)
+				req = req.WithContext(playback.ProxyCassetteContext(r.Context()))
+
+				httpResponse, err := httpClient.Do(req)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				} else if httpResponse.StatusCode != http.StatusOK {
+					w.WriteHeader(httpResponse.StatusCode)
+					return
+				}
+
+				httpBytes, _ := ioutil.ReadAll(httpResponse.Body)
+				io.WriteString(w, string(httpBytes)+resultStr)
+			}))
+			handler = p.NewHTTPServiceMiddleware(handler)
+
+			resultResponse := "10"
+			httpBody := "Done"
+			expectedBody := httpBody + resultResponse
+
+			t.Run("Server returns ok: one pass AddHTTPRecord", func(t *testing.T) {
+				cassette, _ := p.NewCassette()
+
+				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				req = req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
+
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+
+				resp := w.Result()
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+				assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+				assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				body, _ := ioutil.ReadAll(resp.Body)
+				assert.Equal(t, expectedBody, string(body))
+			})
+			t.Run("Server returns ok: two passes AddHTTPRecord", func(t *testing.T) {
+				cassette, _ := p.NewCassette()
+
+				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				recorder := cassette.AddHTTPRecord(serverRequest, nil, nil)
+				recorder.RecordResponse(httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				req = req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
+
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+
+				resp := w.Result()
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+				assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+				assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				body, _ := ioutil.ReadAll(resp.Body)
+				assert.Equal(t, expectedBody, string(body))
+			})
+			t.Run("Server returns error", func(t *testing.T) {
+				cassette, _ := p.NewCassette()
+
+				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseError(http.StatusInternalServerError), nil)
+
+				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseError(http.StatusInternalServerError))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				req = req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
+
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+
+				resp := w.Result()
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+				assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+				assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+				assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+				body, _ := ioutil.ReadAll(resp.Body)
+				assert.Equal(t, "", string(body))
+			})
+			t.Run("Put cassette to server using HTTP method", func(t *testing.T) {
+				cassette, _ := p.NewCassette()
+
+				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				req = httptest.NewRequest("POST", "http://example.com/playback/add/", bytes.NewBuffer(cassette.MarshalToYAML()))
+				w := httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+				resp := w.Result()
+				body, _ := ioutil.ReadAll(resp.Body)
+				cassetteID := string(body)
+				assert.NotEmpty(t, cassetteID)
+
+				req = httptest.NewRequest("GET", "http://example.com/foo", nil)
+				req.Header.Set(playback.HeaderCassetteID, cassetteID)
+
+				w = httptest.NewRecorder()
+				handler.ServeHTTP(w, req)
+
+				resp = w.Result()
+
+				cassette = p.Get(cassetteID)
+				assert.True(t, cassette.IsPlaybackSucceeded())
+				assert.True(t, cassette.IsHTTPResponseCorrect(resp))
+				assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+				body, _ = ioutil.ReadAll(resp.Body)
+				assert.Equal(t, expectedBody, string(body))
+			})
+		})
 	})
 
+	// TODO clean cassettes map in Playback by time or count
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes
 	// TODO Can be used as grpc middleware at server

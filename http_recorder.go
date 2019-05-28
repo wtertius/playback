@@ -5,16 +5,17 @@ import (
 	"net/http/httputil"
 )
 
-type httpRecorder struct {
+type HTTPRecorder struct {
 	httpPlayback *httpPlayback
 	cassette     *Cassette
+	rec          *record
 	req          *http.Request
 	res          *http.Response
 	err          error
 }
 
-func newHTTPRecorder(httpPlayback *httpPlayback, req *http.Request) *httpRecorder {
-	recorder := &httpRecorder{
+func newHTTPRecorder(httpPlayback *httpPlayback, req *http.Request) *HTTPRecorder {
+	recorder := &HTTPRecorder{
 		httpPlayback: httpPlayback,
 		cassette:     CassetteFromContext(req.Context()),
 		req:          req,
@@ -23,19 +24,19 @@ func newHTTPRecorder(httpPlayback *httpPlayback, req *http.Request) *httpRecorde
 	return recorder
 }
 
-func (r *httpRecorder) Call() error {
+func (r *HTTPRecorder) Call() error {
 	r.res, r.err = r.httpPlayback.Real.RoundTrip(r.req)
 
 	return r.err
 }
 
-func (r *httpRecorder) Playback() error {
+func (r *HTTPRecorder) Playback() error {
 	r.res, r.err = r.playback(r.req)
 
 	return r.err
 }
 
-func (r *httpRecorder) playback(req *http.Request) (*http.Response, error) {
+func (r *HTTPRecorder) playback(req *http.Request) (*http.Response, error) {
 	rec := r.newRecord(req)
 	if rec == nil {
 		return nil, ErrPlaybackFailed
@@ -56,54 +57,50 @@ func (r *httpRecorder) playback(req *http.Request) (*http.Response, error) {
 	return res, rec.Err.error
 }
 
-func (r *httpRecorder) Record() error {
+func (r *HTTPRecorder) Record() error {
 	r.res, r.err = r.record(r.req)
 
 	return r.err
 }
 
-func (r *httpRecorder) record(req *http.Request) (*http.Response, error) {
+func (r *HTTPRecorder) record(req *http.Request) (*http.Response, error) {
 	rec := r.newRecord(req)
 	if rec == nil {
-		return r.call(rec, req)
+		return r.call(req)
 	}
 
-	rec.RecordRequest()
+	r.rec.RecordRequest()
 
-	res, err := r.call(rec, req)
+	res, err := r.call(req)
 
-	r.RecordResponse(rec, res, err)
-	rec.PanicIfHas()
+	r.RecordResponse(res, err)
+	r.rec.PanicIfHas()
 
 	return res, err
 }
 
-func (r *httpRecorder) call(rec *record, req *http.Request) (*http.Response, error) {
+func (r *HTTPRecorder) call(req *http.Request) (*http.Response, error) {
 	defer func() {
-		if rec == nil {
+		if r.rec == nil {
 			return
 		}
 
 		if recovered := recover(); recovered != nil {
-			rec.Panic = recovered
+			r.rec.Panic = recovered
 		}
 	}()
 
 	return r.httpPlayback.Real.RoundTrip(req)
 }
 
-func (r *httpRecorder) RecordResponse(rec *record, res *http.Response, err error) {
-	rec.Response = httpDumpResponse(res)
-	rec.Err = RecordError{err}
+func (r *HTTPRecorder) RecordResponse(res *http.Response, err error) {
+	r.rec.Response = httpDumpResponse(res)
+	r.rec.Err = RecordError{err}
 
-	rec.Record()
+	r.rec.Record()
 }
 
-func (r *httpRecorder) newRecord(req *http.Request) *record {
-	if r.cassette == nil {
-		return nil
-	}
-
+func (r *HTTPRecorder) newRecord(req *http.Request) *record {
 	header := req.Header
 
 	curl := requestToCurl(req)
@@ -112,11 +109,13 @@ func (r *httpRecorder) newRecord(req *http.Request) *record {
 
 	req.Header = header
 
-	return &record{
+	r.rec = &record{
 		Kind:        KindHTTP,
 		Key:         key,
 		Request:     curl,
 		RequestDump: string(requestDump),
 		cassette:    r.cassette,
 	}
+
+	return r.rec
 }
