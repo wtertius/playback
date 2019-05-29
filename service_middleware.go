@@ -8,13 +8,13 @@ import (
 
 func (p *Playback) NewHTTPServiceMiddleware(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/playback/", p.newPlaybackHTTPHandler())
+	mux.Handle("/playback/", p.NewPlaybackHTTPHandler())
 	mux.Handle("/", next)
 
 	return mux
 }
 
-func (p *Playback) newPlaybackHTTPHandler() http.Handler {
+func (p *Playback) NewPlaybackHTTPHandler() http.Handler {
 	handler := playbackHTTPHandler{playback: p}
 
 	mux := http.NewServeMux()
@@ -39,11 +39,13 @@ func (h *playbackHTTPHandler) ServiceAdd(w http.ResponseWriter, req *http.Reques
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	cassette, err := h.playback.CassetteFromYAML(body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
 	fmt.Fprintf(w, cassette.ID)

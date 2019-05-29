@@ -527,7 +527,7 @@ func TestCassete(t *testing.T) {
 					"  key: " + key + "\n" +
 					"  id: 1\n" +
 					"  request: curl -X 'GET' '" + ts.URL + "'\n" +
-					"  requestdump: " + `"GET / HTTP/1.1\r\nHost: ` + strings.TrimPrefix(ts.URL, "http://") + `\r\n\r\n"` + "\n"
+					"  requestdump: " + `"GET / HTTP/1.1\r\nHost: ` + strings.TrimPrefix(ts.URL, "http://") + `\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding:` + "\n" + `    gzip\r\n\r\n"` + "\n"
 				contentsExpected := "" +
 					contentsCommon +
 					"  response: \"\"\n" +
@@ -536,7 +536,7 @@ func TestCassete(t *testing.T) {
 
 					contentsCommon +
 					`  response: "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\nDate:` + "\n" +
-					`    ` + response.Header.Get("Date") + `\r\nHi: 2\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n" +
+					`    ` + response.Header.Get("Date") + `\r\nHi: ` + strconv.Itoa(counter) + `\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n" +
 					"  err: null\n" +
 					"  panic: null\n"
 
@@ -662,7 +662,7 @@ func TestCassete(t *testing.T) {
 						io.WriteString(w, string(httpBytes)+resultStr)
 					}))
 
-					req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+					req, _ := http.NewRequest("POST", "http://example.com/foo", strings.NewReader("bar"))
 					w := httptest.NewRecorder()
 					handler.ServeHTTP(w, req)
 
@@ -698,7 +698,7 @@ func TestCassete(t *testing.T) {
 					})
 
 					t.Run("playbacks from cassette id in request headers", func(t *testing.T) {
-						req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+						req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 						req.Header.Set(playback.HeaderCassetteID, cassette.ID)
 
 						w = httptest.NewRecorder()
@@ -714,7 +714,7 @@ func TestCassete(t *testing.T) {
 					})
 
 					t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
-						req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+						req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 						req.Header.Set(playback.HeaderCassettePathName, cassettePathName)
 						req.Header.Set(playback.HeaderCassettePathType, string(playback.PathTypeFile))
 
@@ -735,10 +735,13 @@ func TestCassete(t *testing.T) {
 						assert.Nil(t, err)
 
 						reqGot = reqGot.WithContext(context.Background())
-						reqExpected := req.WithContext(context.Background())
+						reqExpected, _ := http.NewRequest("POST", "http://example.com/foo", strings.NewReader("bar"))
 						reqExpected.RemoteAddr = ""
 
-						assert.Equal(t, reqExpected, reqGot)
+						dumpExpected, _ := httputil.DumpRequestOut(reqExpected, true)
+						dumpGot, _ := httputil.DumpRequest(reqGot, true)
+
+						assert.ElementsMatch(t, strings.Split(string(dumpExpected), "\n"), strings.Split(string(dumpGot), "\n"))
 					})
 
 					t.Run("response is recorded to the cassette", func(t *testing.T) {
@@ -793,7 +796,7 @@ func TestCassete(t *testing.T) {
 			t.Run("Server returns ok: one pass AddHTTPRecord", func(t *testing.T) {
 				cassette, _ := p.NewCassette()
 
-				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 				cassette.SetHTTPRequest(req)
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
@@ -820,7 +823,7 @@ func TestCassete(t *testing.T) {
 			t.Run("Server returns ok: two passes AddHTTPRecord", func(t *testing.T) {
 				cassette, _ := p.NewCassette()
 
-				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 				cassette.SetHTTPRequest(req)
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				recorder := cassette.AddHTTPRecord(serverRequest, nil, nil)
@@ -848,7 +851,7 @@ func TestCassete(t *testing.T) {
 			t.Run("Server returns error", func(t *testing.T) {
 				cassette, _ := p.NewCassette()
 
-				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 				cassette.SetHTTPRequest(req)
 
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
@@ -877,7 +880,7 @@ func TestCassete(t *testing.T) {
 			t.Run("Put cassette to server using HTTP method", func(t *testing.T) {
 				cassette, _ := p.NewCassette()
 
-				req := httptest.NewRequest("GET", "http://example.com/foo", nil)
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 				cassette.SetHTTPRequest(req)
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
@@ -939,7 +942,7 @@ func removeFilename(t *testing.T, filename string) {
 }
 
 func keyOfRequest(req *http.Request) string {
-	requestDump, _ := httputil.DumpRequest(req, true)
+	requestDump, _ := httputil.DumpRequestOut(req, true)
 	key := req.URL.Path + "?" + calcMD5(requestDump)
 
 	return key

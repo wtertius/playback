@@ -104,7 +104,7 @@ func (r *HTTPRecorder) newRecord(req *http.Request) *record {
 	header := req.Header
 
 	curl := requestToCurl(req)
-	requestDump, _ := httputil.DumpRequest(req, true)
+	requestDump, _ := httputil.DumpRequestOut(req, true)
 	key := req.URL.Path + "?" + calcMD5(requestDump)
 
 	req.Header = header
