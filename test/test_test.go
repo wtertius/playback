@@ -406,8 +406,8 @@ func TestCassete(t *testing.T) {
 			contentsExpected := "- kind: result\n" +
 				"  key: rand.Intn\n" +
 				"  id: 1\n" +
+				"  requestmeta: \"\"\n" +
 				"  request: \"\"\n" +
-				"  requestdump: \"\"\n" +
 				"  responsemeta: \"\"\n" +
 				"  response: |\n" +
 				"    type: int\n" +
@@ -564,8 +564,8 @@ func TestCassete(t *testing.T) {
 					"- kind: http\n" +
 					"  key: " + key + "\n" +
 					"  id: 1\n" +
-					"  request: curl -X 'GET' '" + ts.URL + "'\n" +
-					"  requestdump: " + `"GET / HTTP/1.1\r\nHost: ` + strings.TrimPrefix(ts.URL, "http://") + `\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding:` + "\n" + `    gzip\r\n\r\n"` + "\n"
+					"  requestmeta: curl -X 'GET' '" + ts.URL + "'\n" +
+					"  request: " + `"GET / HTTP/1.1\r\nHost: ` + strings.TrimPrefix(ts.URL, "http://") + `\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding:` + "\n" + `    gzip\r\n\r\n"` + "\n"
 				contentsExpected := "" +
 					contentsCommon +
 					"  responsemeta: \"\"\n" +

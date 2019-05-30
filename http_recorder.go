@@ -112,8 +112,8 @@ func (r *HTTPRecorder) newRecord(req *http.Request) *record {
 	r.rec = &record{
 		Kind:        KindHTTP,
 		Key:         key,
-		Request:     curl,
-		RequestDump: string(requestDump),
+		RequestMeta: curl,
+		Request:     string(requestDump),
 		cassette:    r.cassette,
 	}
 

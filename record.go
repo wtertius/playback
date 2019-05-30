@@ -35,8 +35,8 @@ type record struct {
 	Kind         RecordKind
 	Key          string
 	ID           uint64
+	RequestMeta  string
 	Request      string
-	RequestDump  string
 	ResponseMeta string
 	Response     string
 	Err          RecordError
@@ -88,7 +88,7 @@ func (r *record) playback() error {
 		return err
 	}
 
-	r.Request = record.Request
+	r.RequestMeta = record.RequestMeta
 	r.Response = record.Response
 	r.Err = record.Err
 	r.Panic = record.Panic

@@ -275,7 +275,7 @@ func (c *Cassette) GRPCRequest(req interface{}) error {
 	if err != nil {
 		return err
 	}
-	err = yaml.Unmarshal([]byte(rec.RequestDump), req)
+	err = yaml.Unmarshal([]byte(rec.Request), req)
 	if err != nil {
 		return err
 	}
@@ -287,8 +287,8 @@ func (c *Cassette) SetGRPCRequest(req interface{}) {
 	rec := &record{
 		Kind:        KindGRPCRequest,
 		Key:         DefaultKey,
-		RequestDump: yamlMarshalString(&req),
-		Request:     reflect.ValueOf(req).Type().String(),
+		Request:     yamlMarshalString(&req),
+		RequestMeta: reflect.ValueOf(req).Type().String(),
 	}
 	c.Add(rec)
 }
@@ -324,7 +324,7 @@ func (c *Cassette) HTTPRequest() (*http.Request, error) {
 		return nil, err
 	}
 
-	req, err := httpReadRequest(rec.RequestDump)
+	req, err := httpReadRequest(rec.Request)
 	return req, err
 }
 
