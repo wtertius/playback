@@ -34,6 +34,7 @@ func httpCopyResponse(res *http.Response, req *http.Request) *http.Response {
 func httpDeleteHeaders(res *http.Response) *http.Response {
 	res.Header.Del(HeaderMode)
 	res.Header.Del(HeaderSuccess)
+	res.Header.Del(HeaderCassetteID)
 
 	return res
 }

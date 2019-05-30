@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -95,9 +96,11 @@ func (c *Cassette) Mode() Mode {
 	return c.mode
 }
 
-func (c *Cassette) SetMode(mode Mode) {
+func (c *Cassette) SetMode(mode Mode) *Cassette {
 	// TODO Lock
 	c.mode = mode
+
+	return c
 }
 
 func (c *Cassette) WithFile() (*Cassette, error) {
@@ -163,7 +166,7 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 	}
 
 	for kind, kindTracks := range c.tracks {
-		if kind == KindHTTPRequest {
+		if kind == KindHTTPRequest || kind == KindGRPCRequest {
 			continue
 		}
 
@@ -175,6 +178,21 @@ func (c *Cassette) IsPlaybackSucceeded() bool {
 	}
 
 	return true
+}
+
+func (c *Cassette) IsGRPCResponseCorrect(res interface{}) bool {
+	resExpected := reflect.New(reflect.TypeOf(res).Elem()).Interface()
+	err := c.GRPCResponse(resExpected)
+	if err != nil {
+		return false
+	}
+
+	err = c.GRPCResponse(res)
+	if err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(resExpected, res)
 }
 
 func (c *Cassette) IsHTTPResponseCorrect(res *http.Response) bool {
@@ -252,8 +270,56 @@ func (c *Cassette) nextRecordID() uint64 {
 	return c.recID
 }
 
+func (c *Cassette) GRPCRequest(req interface{}) error {
+	rec, err := c.GetLast(KindGRPCRequest, DefaultKey)
+	if err != nil {
+		return err
+	}
+	err = yaml.Unmarshal([]byte(rec.RequestDump), req)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+func (c *Cassette) SetGRPCRequest(req interface{}) {
+	rec := &record{
+		Kind:        KindGRPCRequest,
+		Key:         DefaultKey,
+		RequestDump: yamlMarshalString(&req),
+		Request:     reflect.ValueOf(req).Type().String(),
+	}
+	c.Add(rec)
+}
+
+func (c *Cassette) GRPCResponse(resp interface{}) error {
+	rec, err := c.GetLast(KindGRPCRequest, DefaultKey)
+	if err != nil {
+		return err
+	}
+	err = yaml.Unmarshal([]byte(rec.Response), resp)
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+func (c *Cassette) SetGRPCResponse(resp interface{}) error {
+	rec, err := c.GetLast(KindGRPCRequest, DefaultKey)
+	if err != nil {
+		return err
+	}
+
+	rec.ResponseMeta = reflect.ValueOf(resp).Type().String()
+	rec.Response = yamlMarshalString(&resp)
+
+	return c.Add(rec)
+}
+
 func (c *Cassette) HTTPRequest() (*http.Request, error) {
-	rec, err := c.GetLast(KindHTTPRequest, "")
+	rec, err := c.GetLast(KindHTTPRequest, DefaultKey)
 	if err != nil {
 		return nil, err
 	}

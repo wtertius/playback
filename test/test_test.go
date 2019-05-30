@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -19,7 +21,13 @@ import (
 	"testing"
 	"time"
 
+	pb "cloud.google.com/go/trace/testdata/helloworld"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/test/bufconn"
+
+	"google.golang.org/grpc"
+
 	"github.com/wtertius/playback"
 	"github.com/wtertius/playback/httphelper"
 )
@@ -116,6 +124,35 @@ func TestCassete(t *testing.T) {
 			cassette.Result(key, expectedBody[1])
 
 			assert.Nil(t, cassette.Error())
+		})
+	})
+	t.Run("GRPC", func(t *testing.T) {
+		t.Run("can store Request", func(t *testing.T) {
+			p := playback.New()
+			cassette, _ := p.NewCassette()
+
+			req := &pb.HelloRequest{Name: "Request"}
+			cassette.SetGRPCRequest(req)
+
+			var reqRestored *pb.HelloRequest
+			err := cassette.GRPCRequest(&reqRestored)
+			assert.Nil(t, err)
+			assert.Equal(t, req, reqRestored)
+		})
+		t.Run("can store Response", func(t *testing.T) {
+			p := playback.New()
+			cassette, _ := p.NewCassette()
+
+			cassette.SetGRPCRequest(&pb.HelloRequest{Name: "Request"})
+
+			resp := &pb.HelloReply{Message: "Response"}
+			err := cassette.SetGRPCResponse(resp)
+			assert.Nil(t, err)
+
+			var respRestored *pb.HelloReply
+			err = cassette.GRPCResponse(&respRestored)
+			assert.Nil(t, err)
+			assert.Equal(t, resp, respRestored)
 		})
 	})
 
@@ -371,6 +408,7 @@ func TestCassete(t *testing.T) {
 				"  id: 1\n" +
 				"  request: \"\"\n" +
 				"  requestdump: \"\"\n" +
+				"  responsemeta: \"\"\n" +
 				"  response: |\n" +
 				"    type: int\n" +
 				"    value: " + strconv.Itoa(numberExpected) + "\n" +
@@ -530,11 +568,13 @@ func TestCassete(t *testing.T) {
 					"  requestdump: " + `"GET / HTTP/1.1\r\nHost: ` + strings.TrimPrefix(ts.URL, "http://") + `\r\nUser-Agent: Go-http-client/1.1\r\nAccept-Encoding:` + "\n" + `    gzip\r\n\r\n"` + "\n"
 				contentsExpected := "" +
 					contentsCommon +
+					"  responsemeta: \"\"\n" +
 					"  response: \"\"\n" +
 					"  err: null\n" +
 					"  panic: null\n" +
 
 					contentsCommon +
+					"  responsemeta: \"\"\n" +
 					`  response: "HTTP/1.1 200 OK\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\nDate:` + "\n" +
 					`    ` + response.Header.Get("Date") + `\r\nHi: ` + strconv.Itoa(counter) + `\r\n\r\n` + strings.TrimSuffix(string(body), "\n") + `\n"` + "\n" +
 					"  err: null\n" +
@@ -675,10 +715,12 @@ func TestCassete(t *testing.T) {
 					assert.Equal(t, test.expectedBody, string(body))
 					assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
 
+					cassetteID := resp.Header.Get(playback.HeaderCassetteID)
+					assert.NotEmpty(t, cassetteID)
+					p.Get(cassetteID).SetMode(playback.ModePlayback)
+
 					cassettePathName := resp.Header.Get(playback.HeaderCassettePathName)
 					defer removeFilename(t, cassettePathName)
-
-					cassette, _ := p.CassetteFromFile(cassettePathName)
 
 					t.Run("playbacks from cassette in context", func(t *testing.T) {
 						cassette, _ := p.CassetteFromFile(cassettePathName)
@@ -699,7 +741,7 @@ func TestCassete(t *testing.T) {
 
 					t.Run("playbacks from cassette id in request headers", func(t *testing.T) {
 						req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
-						req.Header.Set(playback.HeaderCassetteID, cassette.ID)
+						req.Header.Set(playback.HeaderCassetteID, cassetteID)
 
 						w = httptest.NewRecorder()
 						handler.ServeHTTP(w, req)
@@ -731,6 +773,7 @@ func TestCassete(t *testing.T) {
 					})
 
 					t.Run("request is recorded to the cassette", func(t *testing.T) {
+						cassette, _ := p.CassetteFromFile(cassettePathName)
 						reqGot, err := cassette.HTTPRequest()
 						assert.Nil(t, err)
 
@@ -745,6 +788,7 @@ func TestCassete(t *testing.T) {
 					})
 
 					t.Run("response is recorded to the cassette", func(t *testing.T) {
+						cassette, _ := p.CassetteFromFile(cassettePathName)
 						respGot, err := cassette.HTTPResponse(req)
 						assert.Nil(t, err)
 
@@ -916,7 +960,112 @@ func TestCassete(t *testing.T) {
 			})
 		})
 	})
+	t.Run("playback.GRPC: record and playback", func(t *testing.T) {
+		p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
 
+		counter := 0
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			counter++
+			w.Header().Set("Hi", strconv.Itoa(counter))
+			fmt.Fprintf(w, "Hello, %d & ", counter)
+		}))
+		defer ts.Close()
+
+		httpClient := &http.Client{
+			Transport: p.HTTPTransport(http.DefaultTransport),
+		}
+
+		resultResponse := "10"
+		server, listener := runGRPCServer(func(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
+			resultStr := playback.CassetteFromContext(ctx).Result("test", resultResponse).(string)
+
+			reqOut, _ := http.NewRequest("GET", ts.URL, nil)
+			reqOut = reqOut.WithContext(playback.ProxyCassetteContext(ctx))
+
+			httpResponse, err := httpClient.Do(reqOut)
+			if err != nil {
+				return nil, err
+			} else if httpResponse.StatusCode != http.StatusOK {
+				return nil, fmt.Errorf("Got http status: %d", httpResponse.StatusCode)
+			}
+
+			httpBytes, _ := ioutil.ReadAll(httpResponse.Body)
+
+			return &pb.HelloReply{
+				Message: string(httpBytes) + resultStr,
+			}, nil
+		}, grpc.UnaryInterceptor(p.NewGRPCMiddleware()))
+		defer server.Stop()
+
+		ctx := context.Background()
+		conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithDialer(bufDialer(listener)), grpc.WithInsecure())
+		if err != nil {
+			t.Fatalf("Failed to dial bufnet: %v", err)
+		}
+		defer conn.Close()
+
+		client := pb.NewGreeterClient(conn)
+
+		header := playback.MD{}
+		req := &pb.HelloRequest{}
+		resp, err := client.SayHello(ctx, req, grpc.Header(&header.MD))
+		if err != nil {
+			t.Fatalf("SayHello failed: %v", err)
+		}
+
+		expectedBody := fmt.Sprintf("Hello, %d & %s", counter, resultResponse)
+		assert.Equal(t, expectedBody, resp.Message)
+
+		assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
+		assert.Equal(t, string(playback.PathTypeFile), header.Get(playback.HeaderCassettePathType))
+
+		cassetteID := header.Get(playback.HeaderCassetteID)
+		assert.NotEmpty(t, cassetteID)
+
+		p.Get(cassetteID).SetMode(playback.ModePlayback)
+
+		cassettePathName := header.Get(playback.HeaderCassettePathName)
+		defer removeFilename(t, cassettePathName)
+
+		t.Run("playbacks from cassette id in request headers", func(t *testing.T) {
+			ctx := metadata.AppendToOutgoingContext(ctx, playback.HeaderCassetteID, cassetteID)
+
+			header := playback.MD{}
+			resp, err := client.SayHello(ctx, req, grpc.Header(&header.MD))
+			if err != nil {
+				t.Fatalf("SayHello failed: %v", err)
+			}
+
+			assert.Equal(t, expectedBody, resp.Message)
+
+			assert.Equal(t, playback.ModePlayback, playback.Mode(header.Get(playback.HeaderMode)))
+			assert.Equal(t, cassettePathName, header.Get(playback.HeaderCassettePathName))
+			assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
+		})
+
+		t.Run("playbacks from cassette path in request headers", func(t *testing.T) {
+			ctx := metadata.AppendToOutgoingContext(ctx,
+				playback.HeaderCassettePathName, cassettePathName,
+				playback.HeaderCassettePathType, string(playback.PathTypeFile),
+			)
+
+			header := playback.MD{}
+			resp, err := client.SayHello(ctx, req, grpc.Header(&header.MD))
+			if err != nil {
+				t.Fatalf("SayHello failed: %v", err)
+			}
+
+			assert.Equal(t, expectedBody, resp.Message)
+
+			assert.Equal(t, playback.ModePlayback, playback.Mode(header.Get(playback.HeaderMode)))
+			assert.Equal(t, cassettePathName, header.Get(playback.HeaderCassettePathName))
+			assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
+		})
+	})
+
+	// TODO Code is concurrently safe
+	// TODO Admin: Can download cassette by ID
+	// TODO Admin: Can list cassettes
 	// TODO clean cassettes map in Playback by time or count
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes
@@ -950,4 +1099,32 @@ func keyOfRequest(req *http.Request) string {
 
 func calcMD5(data []byte) string {
 	return fmt.Sprintf("%x", md5.Sum(data))
+}
+
+func bufDialer(listener *bufconn.Listener) func(string, time.Duration) (net.Conn, error) {
+	return func(string, time.Duration) (net.Conn, error) {
+		return listener.Dial()
+	}
+}
+
+type sayHelloFunc func(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error)
+type grpcServer struct {
+	sayHello sayHelloFunc
+}
+
+func (s grpcServer) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
+	return s.sayHello(ctx, req)
+}
+
+func runGRPCServer(sayHello sayHelloFunc, opts ...grpc.ServerOption) (*grpc.Server, *bufconn.Listener) {
+	listener := bufconn.Listen(1024 * 1024)
+	s := grpc.NewServer(opts...)
+	pb.RegisterGreeterServer(s, &grpcServer{sayHello: sayHello})
+	go func() {
+		if err := s.Serve(listener); err != nil {
+			log.Fatalf("Server exited with error: %v", err)
+		}
+	}()
+
+	return s, listener
 }

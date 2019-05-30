@@ -1,8 +1,12 @@
 package playback
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -15,23 +19,11 @@ const (
 
 func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := req.Context()
-		cassette := CassetteFromContext(ctx)
-		if cassette == nil && PathTypeFile == PathType(req.Header.Get(HeaderCassettePathType)) {
-			cassette, _ = p.CassetteFromFile(req.Header.Get(HeaderCassettePathName))
-		}
-		if cassette == nil {
-			if id := req.Header.Get(HeaderCassetteID); id != "" {
-				cassette = p.cassettes[id]
-			}
-		}
-		if cassette == nil {
-			cassette, _ = p.NewCassette()
-		}
+		cassette := p.incomingCassetteFromHTTPRequest(req)
 
 		mode := cassette.Mode()
 
-		ctx = NewContextWithCassette(ctx, cassette)
+		ctx := NewContextWithCassette(req.Context(), cassette)
 		req = req.WithContext(ctx)
 
 		if mode == ModeRecord {
@@ -46,6 +38,7 @@ func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 			rw.Header().Set(HeaderCassettePathName, pathName)
 		}
 		rw.Header().Set(HeaderMode, string(mode))
+		rw.Header().Set(HeaderCassetteID, cassette.ID)
 
 		next.ServeHTTP(rw, req)
 
@@ -60,4 +53,84 @@ func (p *Playback) NewHTTPMiddleware(next http.Handler) http.Handler {
 			rw.Flush()
 		}
 	})
+}
+
+func (p *Playback) NewGRPCMiddleware() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		cassette := p.incomingCassetteFromGRPCContext(ctx)
+		mode := cassette.Mode()
+
+		ctx = NewContextWithCassette(ctx, cassette)
+
+		if mode == ModeRecord {
+			cassette.SetGRPCRequest(req)
+		}
+
+		res, err := handler(ctx, req)
+
+		if mode == ModeRecord {
+			cassette.SetGRPCResponse(res)
+		}
+
+		md := metadata.Pairs(
+			HeaderMode, string(mode),
+			HeaderCassetteID, cassette.ID,
+		)
+		if pathType := cassette.PathType(); pathType != PathTypeNil {
+			md.Set(HeaderCassettePathType, string(pathType))
+		}
+		if pathName := cassette.PathName(); pathName != "" {
+			md.Set(HeaderCassettePathName, pathName)
+		}
+		if mode == ModeRecord {
+			md.Set(HeaderSuccess, "true")
+		} else if mode == ModePlayback {
+			md.Set(HeaderSuccess, fmt.Sprintf("%t", cassette.IsGRPCResponseCorrect(res) && cassette.IsPlaybackSucceeded()))
+		}
+
+		grpc.SendHeader(ctx, md)
+
+		return res, err
+	}
+}
+
+func (p *Playback) incomingCassetteFromHTTPRequest(req *http.Request) *Cassette {
+	return p.incomingCassette(req.Context(), req.Header.Get(HeaderCassetteID), req.Header.Get(HeaderCassettePathType), req.Header.Get(HeaderCassettePathName))
+}
+
+type MD struct {
+	metadata.MD
+}
+
+func (meta MD) Get(key string) string {
+	values := meta.MD.Get(key)
+	if len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
+}
+
+func (p *Playback) incomingCassetteFromGRPCContext(ctx context.Context) *Cassette {
+	md, _ := metadata.FromIncomingContext(ctx)
+	meta := MD{md}
+
+	return p.incomingCassette(ctx, meta.Get(HeaderCassetteID), meta.Get(HeaderCassettePathType), meta.Get(HeaderCassettePathName))
+}
+
+func (p *Playback) incomingCassette(ctx context.Context, cassetteID string, pathType string, pathName string) *Cassette {
+	cassette := CassetteFromContext(ctx)
+	if cassette == nil {
+		if cassetteID != "" {
+			cassette = p.cassettes[cassetteID]
+		}
+	}
+	if cassette == nil && PathTypeFile == PathType(pathType) {
+		cassette, _ = p.CassetteFromFile(pathName)
+	}
+	if cassette == nil {
+		cassette, _ = p.NewCassette()
+	}
+
+	return cassette
 }

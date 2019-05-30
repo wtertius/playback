@@ -16,6 +16,9 @@ const (
 	KindResult      = RecordKind("result")
 	KindHTTP        = RecordKind("http")
 	KindHTTPRequest = RecordKind("http_request")
+	KindGRPCRequest = RecordKind("grpc_request")
+
+	DefaultKey = ""
 )
 
 var ErrPlaybackFailed = errors.New("Playback failed")
@@ -29,14 +32,15 @@ type record struct {
 	response string
 
 	// TODO New fields
-	Kind        RecordKind
-	Key         string
-	ID          uint64
-	Request     string
-	RequestDump string
-	Response    string
-	Err         RecordError
-	Panic       interface{}
+	Kind         RecordKind
+	Key          string
+	ID           uint64
+	Request      string
+	RequestDump  string
+	ResponseMeta string
+	Response     string
+	Err          RecordError
+	Panic        interface{}
 
 	cassette *Cassette
 }

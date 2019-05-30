@@ -1,6 +1,7 @@
 module github.com/wtertius/playback
 
 require (
+	cloud.google.com/go v0.26.0
 	github.com/moul/http2curl v1.0.0
 	github.com/smartystreets/goconvey v0.0.0-20190306220146-200a235640ff // indirect
 	github.com/spf13/viper v1.3.2

@@ -4,18 +4,16 @@ import (
 	"context"
 )
 
-var contextKeyPlayback = struct{}{}
+var contextKeyCassette = struct{}{}
 
 func FromContext(ctx context.Context) *Playback {
-	p, ok := ctx.Value(contextKeyPlayback).(*Playback)
-	if !ok {
-		p = Default()
+	c := CassetteFromContext(ctx)
+	if c == nil {
+		return nil
 	}
 
-	return p
+	return c.playback
 }
-
-var contextKeyCassette = struct{}{}
 
 func ProxyCassetteContext(ctx context.Context) context.Context {
 	ctx = NewContextWithCassette(ctx, CassetteFromContext(ctx))
