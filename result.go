@@ -12,6 +12,7 @@ type resultRecorder struct {
 	typ      reflect.Type
 	value    interface{}
 	panic    interface{}
+	err      error
 }
 
 type resultResponse struct {
@@ -52,6 +53,7 @@ func (r *resultRecorder) record() record {
 		Value: r.value,
 	})
 	rec.Panic = r.panic
+	rec.Err = RecordError{r.err}
 
 	rec.Record()
 
@@ -79,6 +81,7 @@ func (r *resultRecorder) Playback() error {
 	}
 
 	r.value = response.Value
+	r.err = rec.Err.error
 	rec.PanicIfHas()
 
 	return nil
@@ -92,6 +95,8 @@ func (r *resultRecorder) newRecord() record {
 	}
 }
 
+var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+
 func (r *resultRecorder) fillInTyp() {
 	val := reflect.ValueOf(r.value)
 	if val.Kind() != reflect.Func {
@@ -100,7 +105,7 @@ func (r *resultRecorder) fillInTyp() {
 	}
 
 	typ := val.Type()
-	if typ.NumIn() > 0 || typ.NumOut() != 1 {
+	if typ.NumIn() > 0 || typ.NumOut() < 1 || typ.NumOut() > 2 || (typ.NumOut() == 2 && !typ.Out(1).Implements(errorInterface)) {
 		// TODO return error
 		panic("Incorrect type: " + typ.String())
 		return
@@ -121,6 +126,10 @@ func (r *resultRecorder) applyIfFunc() {
 			r.value = reflect.Zero(val.Type().Out(0)).Interface()
 		}
 	}()
+
 	results := val.Call([]reflect.Value{})
 	r.value = results[0].Interface()
+	if len(results) == 2 && !results[1].IsNil() {
+		r.err = results[1].Interface().(error)
+	}
 }

@@ -423,6 +423,56 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
+	t.Run("playback.ResultWithError: record and playback", func(t *testing.T) {
+		rand.Seed(time.Now().Unix())
+		randRange := 100
+
+		t.Run("func", func(t *testing.T) {
+			t.Run("success", func(t *testing.T) {
+				p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
+				key := "rand.Intn"
+				f := func() (interface{}, error) { return rand.Intn(randRange), nil }
+
+				numberExpected, err := cassette.ResultWithError(key, f)
+
+				assert.Nil(t, err)
+				assert.NotEmpty(t, numberExpected)
+
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
+
+				numberGot, err := cassette.ResultWithError(key, f)
+
+				assert.Nil(t, err)
+				assert.Equal(t, numberExpected, numberGot)
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
+			t.Run("with error", func(t *testing.T) {
+				p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
+				key := "rand.Intn"
+				f := func() (interface{}, error) { return 0, fmt.Errorf("Failed") }
+
+				numberExpected, errExpected := cassette.ResultWithError(key, f)
+
+				assert.Error(t, errExpected)
+				assert.Empty(t, numberExpected)
+
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
+
+				numberGot, errGot := cassette.ResultWithError(key, f)
+
+				assert.Equal(t, numberExpected, numberGot)
+				assert.Equal(t, errExpected, errGot)
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
+		})
+	})
+
 	t.Run("cassette can be marshaled to yaml string", func(t *testing.T) {
 		p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
 		cassette, _ := p.NewCassette()
@@ -1066,6 +1116,7 @@ func TestCassete(t *testing.T) {
 	// TODO Code is concurrently safe
 	// TODO Admin: Can download cassette by ID
 	// TODO Admin: Can list cassettes
+	// TODO Admin: Can delete cassette
 	// TODO clean cassettes map in Playback by time or count
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes

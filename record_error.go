@@ -2,6 +2,7 @@ package playback
 
 import (
 	"context"
+	"fmt"
 )
 
 const errTypeContextDeadlineExceeded = "context.DeadlineExceeded"
@@ -37,6 +38,6 @@ func (e *RecordError) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return nil
 	}
 
-	err := unmarshal(&e)
-	return err
+	e.error = fmt.Errorf(errString)
+	return nil
 }

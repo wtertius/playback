@@ -91,6 +91,14 @@ func (c *Cassette) Result(key string, value interface{}) interface{} {
 	return recorder.value
 }
 
+func (c *Cassette) ResultWithError(key string, value interface{}) (interface{}, error) {
+	recorder := newResultRecorder(c, key, value, nil)
+
+	c.Run(recorder)
+
+	return recorder.value, recorder.err
+}
+
 func (c *Cassette) Mode() Mode {
 	// TODO mutex.RLock
 	return c.mode
