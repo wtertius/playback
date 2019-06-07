@@ -371,8 +371,9 @@ func (c *Cassette) AddHTTPRecord(req *http.Request, res *http.Response, err erro
 	return recorder
 }
 
-func (c *Cassette) AddResultRecord(key string, value interface{}, panicObject interface{}) {
+func (c *Cassette) AddResultRecord(key string, typString string, value interface{}, err error, panicObject interface{}) {
 	recorder := newResultRecorder(c, key, value, panicObject)
+	recorder.typString = typString
 	recorder.record()
 }
 

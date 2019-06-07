@@ -89,6 +89,7 @@ func (r *record) playback() error {
 	}
 
 	r.RequestMeta = record.RequestMeta
+	r.ResponseMeta = record.ResponseMeta
 	r.Response = record.Response
 	r.Err = record.Err
 	r.Panic = record.Panic

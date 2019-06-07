@@ -7,12 +7,13 @@ import (
 )
 
 type resultRecorder struct {
-	cassette *Cassette
-	key      string
-	typ      reflect.Type
-	value    interface{}
-	panic    interface{}
-	err      error
+	cassette  *Cassette
+	key       string
+	typ       reflect.Type
+	typString string
+	value     interface{}
+	panic     interface{}
+	err       error
 }
 
 type resultResponse struct {
@@ -33,6 +34,8 @@ func newResultRecorder(cassette *Cassette, key string, value interface{}, panicO
 }
 
 func (r *resultRecorder) Call() error {
+	r.applyIfFunc()
+
 	return nil
 }
 
@@ -48,10 +51,11 @@ func (r *resultRecorder) record() record {
 	r.applyIfFunc()
 	rec := r.newRecord()
 
-	rec.Response = yamlMarshalString(&resultResponse{
-		Type:  r.typ.String(),
-		Value: r.value,
-	})
+	rec.ResponseMeta = r.typ.String()
+	if r.typString != "" {
+		rec.ResponseMeta = r.typString
+	}
+	rec.Response = yamlMarshalString(r.value)
 	rec.Panic = r.panic
 	rec.Err = RecordError{r.err}
 
@@ -60,13 +64,17 @@ func (r *resultRecorder) record() record {
 	return rec
 }
 
-func (r *resultRecorder) Playback() error {
+func (r *resultRecorder) Playback() (err error) {
+	defer func() {
+		if err != nil {
+			r.value = reflect.Zero(r.typ).Interface()
+		}
+	}()
+
 	rec := r.newRecord()
 
-	err := rec.Playback()
+	err = rec.Playback()
 	if err != nil {
-		r.value = reflect.Zero(r.typ).Interface()
-
 		return err
 	}
 
@@ -74,13 +82,13 @@ func (r *resultRecorder) Playback() error {
 		return ErrPlaybackFailed
 	}
 
-	var response *resultResponse
-	err = yaml.Unmarshal([]byte(rec.Response), &response)
-	if err != nil || response.Type != r.typ.String() {
+	value := reflect.New(r.typ).Interface()
+	err = yaml.Unmarshal([]byte(rec.Response), value)
+	if err != nil || rec.ResponseMeta != r.typ.String() {
 		return ErrPlaybackFailed
 	}
 
-	r.value = response.Value
+	r.value = reflect.ValueOf(value).Elem().Interface()
 	r.err = rec.Err.error
 	rec.PanicIfHas()
 

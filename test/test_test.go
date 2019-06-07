@@ -340,6 +340,35 @@ func TestCassete(t *testing.T) {
 				assert.True(t, cassettes[1].IsPlaybackSucceeded())
 			})
 		})
+		t.Run("complex struct type value", func(t *testing.T) {
+			t.Run("replaying works", func(t *testing.T) {
+				p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+
+				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
+				key := "someStruct"
+				type SomeStruct struct {
+					Key   string
+					Value string
+				}
+				someStruct := &SomeStruct{
+					Key:   "some",
+					Value: "struct",
+				}
+
+				structExpected := cassette.Result(key, someStruct).(*SomeStruct)
+				cassette.Finalize()
+
+				assert.Equal(t, someStruct, structExpected)
+
+				cassette, _ = p.CassetteFromFile(cassette.PathName())
+				structGot := cassette.Result(key, &SomeStruct{}).(*SomeStruct)
+
+				assert.Equal(t, structExpected, structGot)
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
+		})
 
 		t.Run("func", func(t *testing.T) {
 			t.Run("replaying works", func(t *testing.T) {
@@ -393,6 +422,21 @@ func TestCassete(t *testing.T) {
 					assert.IsType(t, int(1), number)
 				}()
 			})
+			t.Run("bypass works", func(t *testing.T) {
+				p := playback.New().WithFile().SetDefaultMode(playback.ModeRecord)
+				cassette, _ := p.NewCassette()
+				defer removeFilename(t, cassette.PathName())
+
+				cassette.SetMode(playback.ModeOff)
+
+				key := "number"
+				numberExpected := 10
+				f := func() interface{} { return numberExpected }
+
+				numberGot := cassette.Result(key, f).(int)
+
+				assert.Equal(t, numberExpected, numberGot)
+			})
 		})
 
 		t.Run("file contents are correct", func(t *testing.T) {
@@ -408,10 +452,9 @@ func TestCassete(t *testing.T) {
 				"  id: 1\n" +
 				"  requestmeta: \"\"\n" +
 				"  request: \"\"\n" +
-				"  responsemeta: \"\"\n" +
+				"  responsemeta: int\n" +
 				"  response: |\n" +
-				"    type: int\n" +
-				"    value: " + strconv.Itoa(numberExpected) + "\n" +
+				"    " + strconv.Itoa(numberExpected) + "\n" +
 				"  err: null\n" +
 				"  panic: null\n"
 			contentsGot, err := ioutil.ReadFile(cassette.PathName())
@@ -894,7 +937,7 @@ func TestCassete(t *testing.T) {
 				cassette.SetHTTPRequest(req)
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
-				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
 				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
 
 				cassette.SetMode(playback.ModePlayback)
@@ -922,7 +965,7 @@ func TestCassete(t *testing.T) {
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				recorder := cassette.AddHTTPRecord(serverRequest, nil, nil)
 				recorder.RecordResponse(httphelper.ResponseFromString(httpBody), nil)
-				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
 				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
 
 				cassette.SetMode(playback.ModePlayback)
@@ -951,7 +994,7 @@ func TestCassete(t *testing.T) {
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseError(http.StatusInternalServerError), nil)
 
-				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
 				cassette.SetHTTPResponse(req, httphelper.ResponseError(http.StatusInternalServerError))
 
 				cassette.SetMode(playback.ModePlayback)
@@ -978,7 +1021,7 @@ func TestCassete(t *testing.T) {
 				cassette.SetHTTPRequest(req)
 				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
 				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
-				cassette.AddResultRecord("test", resultResponse, nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
 				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
 
 				cassette.SetMode(playback.ModePlayback)
