@@ -860,7 +860,7 @@ func TestCassete(t *testing.T) {
 						body, _ = ioutil.ReadAll(resp.Body)
 						assert.Equal(t, test.expectedBody, string(body))
 
-						assert.Equal(t, playback.ModePlayback, playback.Mode(resp.Header.Get(playback.HeaderMode)))
+						assert.Equal(t, string(playback.ModePlayback), resp.Header.Get(playback.HeaderMode))
 						assert.Equal(t, cassettePathName, resp.Header.Get(playback.HeaderCassettePathName))
 						assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
 					})
@@ -1069,7 +1069,7 @@ func TestCassete(t *testing.T) {
 		}
 
 		resultResponse := "10"
-		server, listener := runGRPCServer(func(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
+		sayHello := func(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
 			resultStr := playback.CassetteFromContext(ctx).Result("test", resultResponse).(string)
 
 			reqOut, _ := http.NewRequest("GET", ts.URL, nil)
@@ -1087,7 +1087,9 @@ func TestCassete(t *testing.T) {
 			return &pb.HelloReply{
 				Message: string(httpBytes) + resultStr,
 			}, nil
-		}, grpc.UnaryInterceptor(p.NewGRPCMiddleware()))
+		}
+
+		server, listener := runGRPCServer(sayHello, grpc.UnaryInterceptor(p.NewGRPCMiddleware()))
 		defer server.Stop()
 
 		ctx := context.Background()
@@ -1150,8 +1152,42 @@ func TestCassete(t *testing.T) {
 
 			assert.Equal(t, expectedBody, resp.Message)
 
-			assert.Equal(t, playback.ModePlayback, playback.Mode(header.Get(playback.HeaderMode)))
+			assert.Equal(t, string(playback.ModePlayback), header.Get(playback.HeaderMode))
 			assert.Equal(t, cassettePathName, header.Get(playback.HeaderCassettePathName))
+			assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
+		})
+
+		t.Run("record cassette to file if pathType is file in request headers", func(t *testing.T) {
+			p := playback.New()
+
+			server, listener := runGRPCServer(sayHello, grpc.UnaryInterceptor(p.NewGRPCMiddleware()))
+			defer server.Stop()
+
+			ctx := context.Background()
+			conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithDialer(bufDialer(listener)), grpc.WithInsecure())
+			if err != nil {
+				t.Fatalf("Failed to dial bufnet: %v", err)
+			}
+			defer conn.Close()
+
+			client := pb.NewGreeterClient(conn)
+
+			ctx = metadata.AppendToOutgoingContext(ctx,
+				playback.HeaderCassettePathType, string(playback.PathTypeFile),
+				playback.HeaderMode, string(playback.ModeRecord),
+			)
+
+			header := playback.MD{}
+			resp, err := client.SayHello(ctx, req, grpc.Header(&header.MD))
+			if err != nil {
+				t.Fatalf("SayHello failed: %v", err)
+			}
+
+			expectedBody := fmt.Sprintf("Hello, %d & %s", counter, resultResponse)
+			assert.Equal(t, expectedBody, resp.Message)
+
+			assert.Equal(t, string(playback.ModeRecord), header.Get(playback.HeaderMode))
+			assert.NotEmpty(t, header.Get(playback.HeaderCassettePathName))
 			assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
 		})
 	})

@@ -95,7 +95,7 @@ func (p *Playback) NewGRPCMiddleware() grpc.UnaryServerInterceptor {
 }
 
 func (p *Playback) incomingCassetteFromHTTPRequest(req *http.Request) *Cassette {
-	return p.incomingCassette(req.Context(), req.Header.Get(HeaderCassetteID), req.Header.Get(HeaderCassettePathType), req.Header.Get(HeaderCassettePathName))
+	return p.incomingCassette(req.Context(), req.Header.Get(HeaderCassetteID), req.Header.Get(HeaderMode), req.Header.Get(HeaderCassettePathType), req.Header.Get(HeaderCassettePathName))
 }
 
 type MD struct {
@@ -115,21 +115,28 @@ func (p *Playback) incomingCassetteFromGRPCContext(ctx context.Context) *Cassett
 	md, _ := metadata.FromIncomingContext(ctx)
 	meta := MD{md}
 
-	return p.incomingCassette(ctx, meta.Get(HeaderCassetteID), meta.Get(HeaderCassettePathType), meta.Get(HeaderCassettePathName))
+	return p.incomingCassette(ctx, meta.Get(HeaderCassetteID), meta.Get(HeaderMode), meta.Get(HeaderCassettePathType), meta.Get(HeaderCassettePathName))
 }
 
-func (p *Playback) incomingCassette(ctx context.Context, cassetteID string, pathType string, pathName string) *Cassette {
+func (p *Playback) incomingCassette(ctx context.Context, cassetteID, mode, pathType, pathName string) *Cassette {
 	cassette := CassetteFromContext(ctx)
 	if cassette == nil {
 		if cassetteID != "" {
 			cassette = p.cassettes[cassetteID]
 		}
 	}
-	if cassette == nil && PathTypeFile == PathType(pathType) {
+	if cassette == nil && PathType(pathType) == PathTypeFile {
 		cassette, _ = p.CassetteFromFile(pathName)
 	}
 	if cassette == nil {
 		cassette, _ = p.NewCassette()
+		if Mode(mode) == ModeRecord {
+			cassette.SetMode(ModeRecord)
+
+			if PathType(pathType) == PathTypeFile {
+				cassette.WithFile()
+			}
+		}
 	}
 
 	return cassette
