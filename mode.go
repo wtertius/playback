@@ -14,10 +14,10 @@ type Mode string
 
 const (
 	ModeOff                     Mode = ""
-	ModePlayback                Mode = "Playback"
-	ModeRecord                  Mode = "Record"
-	ModePlaybackOrRecord        Mode = "PlaybackOrRecord"
-	ModePlaybackSuccessOrRecord Mode = "PlaybackSuccessOrRecord"
+	ModePlayback                Mode = "playback"
+	ModeRecord                  Mode = "record"
+	ModePlaybackOrRecord        Mode = "playback_or_record"
+	ModePlaybackSuccessOrRecord Mode = "playback_success_or_record"
 )
 
 type SyncMode string
