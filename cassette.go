@@ -440,8 +440,8 @@ func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
 		c.err = errCassetteGetFailed
