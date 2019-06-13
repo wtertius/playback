@@ -460,6 +460,25 @@ func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
 	return rec, nil
 }
 
+func (c *Cassette) Keys() map[RecordKind]map[string]struct{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	keys := make(map[RecordKind]map[string]struct{}, len(c.tracks))
+
+	for kind, kindTracks := range c.tracks {
+		for key := range kindTracks {
+			if _, ok := keys[kind]; !ok {
+				keys[kind] = make(map[string]struct{}, len(kindTracks))
+			}
+
+			keys[kind][key] = struct{}{}
+		}
+	}
+
+	return keys
+}
+
 func (c *Cassette) GetLast(kind RecordKind, key string) (rec *record, err error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
