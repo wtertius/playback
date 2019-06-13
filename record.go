@@ -50,7 +50,7 @@ func (r *record) Record() {
 }
 
 func (r *record) RecordRequest() {
-	if r.cassette.syncMode == SyncModeEveryChange {
+	if r.cassette.SyncMode() == SyncModeEveryChange {
 		r.Record()
 	}
 }

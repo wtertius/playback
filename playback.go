@@ -2,6 +2,7 @@ package playback
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/spf13/viper"
 )
@@ -19,6 +20,8 @@ type Playback struct {
 	fileMask    string
 	withFile    bool
 	cassettes   map[string]*Cassette
+
+	mu sync.RWMutex
 }
 
 type Option func(*Playback)
@@ -55,18 +58,24 @@ func (p *Playback) CassetteFromYAML(yamlBody []byte) (*Cassette, error) {
 }
 
 func (p *Playback) Mode() Mode {
-	// TODO mutex.RLock
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	return p.defaultMode
 }
 
 func (p *Playback) WithFile() *Playback {
-	// TODO Lock
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.withFile = true
 	return p
 }
 
 func (p *Playback) SetDefaultMode(mode Mode) *Playback {
-	// TODO Lock
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.defaultMode = mode
 
 	return p
@@ -98,6 +107,9 @@ func (p *Playback) SQLResult(query string, args []driver.NamedValue, f func() (d
 */
 
 func (p *Playback) generateID() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	id := RandStringRunes(6)
 	if p.cassettes[id] != nil {
 		return p.generateID()
@@ -107,14 +119,28 @@ func (p *Playback) generateID() string {
 }
 
 func (p *Playback) List() map[string]*Cassette {
-	return p.cassettes
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	list := make(map[string]*Cassette, len(p.cassettes))
+	for id, cassette := range p.cassettes {
+		list[id] = cassette
+	}
+
+	return list
 }
 
 func (p *Playback) Add(cassette *Cassette) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.cassettes[cassette.ID] = cassette
 }
 
 func (p *Playback) Get(cassetteID string) *Cassette {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	return p.cassettes[cassetteID]
 }
 

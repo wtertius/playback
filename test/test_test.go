@@ -1192,7 +1192,6 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
-	// TODO Code is concurrently safe
 	// TODO Admin: Can download cassette by ID
 	// TODO Admin: Can list cassettes
 	// TODO Admin: Can delete cassette

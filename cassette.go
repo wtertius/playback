@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
+	"sync"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -31,6 +32,7 @@ type Cassette struct {
 	locked     bool
 	mode       Mode
 	syncMode   SyncMode
+	mu         sync.RWMutex
 }
 
 func newCassette(p *Playback) *Cassette {
@@ -74,7 +76,6 @@ func newCassetteFromYAML(p *Playback, dump []byte) (*Cassette, error) {
 	c := newCassette(p)
 
 	for _, rec := range records {
-		// TODO mutex.Lock
 		c.add(rec)
 	}
 
@@ -100,18 +101,25 @@ func (c *Cassette) ResultWithError(key string, value interface{}) (interface{}, 
 }
 
 func (c *Cassette) Mode() Mode {
-	// TODO mutex.RLock
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.mode
 }
 
 func (c *Cassette) SetMode(mode Mode) *Cassette {
-	// TODO Lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.mode = mode
 
 	return c
 }
 
 func (c *Cassette) WithFile() (*Cassette, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	var err error
 	c.writer, err = c.newFileForCassette()
 	return c, err
@@ -122,11 +130,24 @@ func (c *Cassette) newFileForCassette() (*file, error) {
 	return &file{f}, err
 }
 
+func (c *Cassette) SyncMode() SyncMode {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.syncMode
+}
+
 func (c *Cassette) SetSyncMode(syncMode SyncMode) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.syncMode = syncMode
 }
 
 func (c *Cassette) Rewind() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.err = nil
 
 	c.recordByID = make(map[uint64]*record, 10)
@@ -138,6 +159,9 @@ func (c *Cassette) Rewind() {
 	}
 }
 func (c *Cassette) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.recID = 0
 	c.err = nil
 	c.recordByID = make(map[uint64]*record, 10)
@@ -151,24 +175,38 @@ func (c *Cassette) reset() {
 }
 
 func (c *Cassette) Lock() {
-	// TODO mu.Lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.lock()
+}
+
+func (c *Cassette) lock() {
 	c.locked = true
 
 	if c.writer != nil {
-		c.Sync()
+		c.sync()
 	}
 }
 
 func (c *Cassette) Unlock() {
-	// TODO mu.Lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.locked = false
 }
 
 func (c *Cassette) Error() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return c.err
 }
 
 func (c *Cassette) IsPlaybackSucceeded() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c == nil || c.mode != ModePlayback || c.err != nil {
 		return false
 	}
@@ -228,7 +266,7 @@ func (c *Cassette) write(content string) error {
 	}
 
 	if c.syncMode == SyncModeEveryChange {
-		err = c.Sync()
+		err = c.sync()
 		if err != nil {
 			return err
 		}
@@ -238,11 +276,21 @@ func (c *Cassette) write(content string) error {
 }
 
 func (c *Cassette) Sync() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.sync()
+}
+
+func (c *Cassette) sync() error {
 	return c.writer.Sync()
 }
 
 func (c *Cassette) Finalize() error {
-	c.Lock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.lock()
 
 	if c.writer != nil {
 		return c.writer.Close()
@@ -251,6 +299,9 @@ func (c *Cassette) Finalize() error {
 }
 
 func (c *Cassette) PathType() PathType {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.writer == nil {
 		return PathTypeNil
 	}
@@ -259,6 +310,9 @@ func (c *Cassette) PathType() PathType {
 }
 
 func (c *Cassette) PathName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.writer == nil {
 		return ""
 	}
@@ -273,7 +327,6 @@ func (c *Cassette) setID(rec *record) {
 }
 
 func (c *Cassette) nextRecordID() uint64 {
-	// TODO mutex.Lock ?
 	c.recID++
 	return c.recID
 }
@@ -387,7 +440,9 @@ func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
 }
 
 func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
-	// TODO mutex.RLock
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
 		c.err = errCassetteGetFailed
 		return nil, errCassetteGetFailed
@@ -406,7 +461,9 @@ func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
 }
 
 func (c *Cassette) GetLast(kind RecordKind, key string) (rec *record, err error) {
-	// TODO mutex.RLock
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
 		c.err = errCassetteGetFailed
 		return nil, errCassetteGetFailed
@@ -424,7 +481,9 @@ func (c *Cassette) GetLast(kind RecordKind, key string) (rec *record, err error)
 }
 
 func (c *Cassette) Add(rec *record) error {
-	// TODO mutex.Lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.locked {
 		c.err = errCassetteLocked
 		return errCassetteLocked
@@ -458,6 +517,9 @@ func (c *Cassette) add(rec *record) {
 }
 
 func (c *Cassette) MarshalToYAML() []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	var buf bytes.Buffer
 	for _, kindTracks := range c.tracks {
 		for _, keyTrack := range kindTracks {
@@ -473,7 +535,7 @@ func (c *Cassette) Run(recorder Recorder) error {
 		return recorder.Call()
 	}
 
-	switch c.mode {
+	switch c.Mode() {
 	case ModeOff:
 		return recorder.Call()
 	case ModePlayback:
