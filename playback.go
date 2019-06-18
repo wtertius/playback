@@ -3,20 +3,16 @@ package playback
 import (
 	"net/http"
 	"sync"
-
-	"github.com/spf13/viper"
+	"time"
 )
 
-func Default() *Playback {
-	return &Playback{
-		defaultMode: Mode(viper.GetString(FlagPlaybackMode)),
-	}
-}
+var defaultCassetteTTL = 3 * time.Hour
 
 type Playback struct {
 	Error error
 
 	defaultMode Mode
+	cassetteTTL time.Duration
 	debug       bool
 	logger      Logger
 	fileMask    string
@@ -28,11 +24,12 @@ type Playback struct {
 
 type Option func(*Playback)
 
-func New(opts ...Option) *Playback {
+func New() *Playback {
 	p := &Playback{
-		fileMask:  FileMask,
-		cassettes: make(map[string]*Cassette),
-		logger:    &defaultLogger{},
+		fileMask:    FileMask,
+		cassettes:   make(map[string]*Cassette),
+		logger:      &defaultLogger{},
+		cassetteTTL: defaultCassetteTTL,
 	}
 
 	return p
@@ -60,13 +57,6 @@ func (p *Playback) CassetteFromYAML(yamlBody []byte) (*Cassette, error) {
 	return newCassetteFromYAML(p, yamlBody)
 }
 
-func (p *Playback) Mode() Mode {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	return p.defaultMode
-}
-
 func (p *Playback) WithFile() *Playback {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -75,11 +65,34 @@ func (p *Playback) WithFile() *Playback {
 	return p
 }
 
+func (p *Playback) Mode() Mode {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.defaultMode
+}
+
 func (p *Playback) SetDefaultMode(mode Mode) *Playback {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.defaultMode = mode
+
+	return p
+}
+
+func (p *Playback) CassetteTTL() time.Duration {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.cassetteTTL
+}
+
+func (p *Playback) SetCassetteTTL(ttl time.Duration) *Playback {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.cassetteTTL = ttl
 
 	return p
 }
@@ -170,6 +183,7 @@ func (p *Playback) Add(cassette *Cassette) {
 	defer p.mu.Unlock()
 
 	p.cassettes[cassette.ID] = cassette
+	go p.deleteByTTL(cassette.ID)
 }
 
 func (p *Playback) Get(cassetteID string) *Cassette {
@@ -186,6 +200,11 @@ func (p *Playback) Delete(cassetteID string) bool {
 	has := p.cassettes[cassetteID] != nil
 	delete(p.cassettes, cassetteID)
 	return has
+}
+
+func (p *Playback) deleteByTTL(cassetteID string) {
+	time.Sleep(p.cassetteTTL)
+	p.Delete(cassetteID)
 }
 
 type Recorder interface {

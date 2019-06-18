@@ -15,6 +15,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1329,11 +1330,26 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
-	// TODO clean cassettes map in Playback by time or count
-	// TODO? result.Func can return error.
-	// TODO Can record background cassette and link it with per call cassettes
-	// TODO Can be used as grpc middleware at server
-	// TODO Can finalize cassette and drop it from active cassettes list
+	t.Run("playback automatically cleans cassete list by timer", func(t *testing.T) {
+		t.Run("Doesn't clean immediately by default", func(t *testing.T) {
+			p := playback.New()
+
+			cassette, _ := playback.New().NewCassette()
+			p.Add(cassette)
+
+			assert.NotNil(t, p.Get(cassette.ID))
+		})
+
+		t.Run("Clean immediately if zero TTL", func(t *testing.T) {
+			p := playback.New().SetCassetteTTL(0 * time.Nanosecond)
+
+			cassette, _ := playback.New().NewCassette()
+			p.Add(cassette)
+			runtime.Gosched()
+
+			assert.Nil(t, p.Get(cassette.ID))
+		})
+	})
 }
 
 func tempFile(t *testing.T, mask string) *os.File {
