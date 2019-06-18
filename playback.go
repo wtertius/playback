@@ -179,6 +179,15 @@ func (p *Playback) Get(cassetteID string) *Cassette {
 	return p.cassettes[cassetteID]
 }
 
+func (p *Playback) Delete(cassetteID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	has := p.cassettes[cassetteID] != nil
+	delete(p.cassettes, cassetteID)
+	return has
+}
+
 type Recorder interface {
 	Call() error
 	Record() error

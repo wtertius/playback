@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+	yaml "gopkg.in/yaml.v2"
 
 	"google.golang.org/grpc"
 
@@ -1106,20 +1107,87 @@ func TestCassete(t *testing.T) {
 					resp := w.Result()
 					assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 				})
-
 				t.Run("Return cassette YAML if cassette added", func(t *testing.T) {
 					p.Add(cassette)
+					req = httptest.NewRequest("GET", "http://example.com/playback/get/?id="+cassette.ID, nil)
 
 					w := httptest.NewRecorder()
 					handler.ServeHTTP(w, req)
 					resp := w.Result()
 					body, _ := ioutil.ReadAll(resp.Body)
-					cassetteYAML := string(body)
-					assert.Equal(t, string(cassette.MarshalToYAML()), cassetteYAML)
+
+					var got interface{}
+					yaml.Unmarshal(body, &got)
+
+					var expected interface{}
+					yaml.Unmarshal(cassette.MarshalToYAML(), &expected)
+
+					assert.ElementsMatch(t, expected, got)
 				})
 			})
-			// TODO Admin: Can list cassettes
-			// TODO Admin: Can delete cassette
+			t.Run("Delete cassette from server using HTTP method", func(t *testing.T) {
+				cassette, _ := playback.New().NewCassette()
+
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				t.Run("Return 400 if no cassette ID given", func(t *testing.T) {
+					req = httptest.NewRequest("DELETE", "http://example.com/playback/delete/", nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+				})
+				t.Run("Return 404 if no such cassette", func(t *testing.T) {
+					req = httptest.NewRequest("DELETE", "http://example.com/playback/delete/?id="+cassette.ID, nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+				})
+				t.Run("Return 200 if cassette deleted", func(t *testing.T) {
+					p.Add(cassette)
+					req = httptest.NewRequest("DELETE", "http://example.com/playback/delete/?id="+cassette.ID, nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+					assert.Nil(t, p.Get(cassette.ID))
+				})
+			})
+			t.Run("List cassettes from server using HTTP method", func(t *testing.T) {
+				cassette, _ := playback.New().NewCassette()
+
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				t.Run("Return cassette YAML if cassette added", func(t *testing.T) {
+					p.Add(cassette)
+					req = httptest.NewRequest("GET", "http://example.com/playback/list/", nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					body, _ := ioutil.ReadAll(resp.Body)
+					assert.Contains(t, string(body), fmt.Sprintf("- %s\n", cassette.ID))
+				})
+			})
 		})
 	})
 	t.Run("playback.GRPC: record and playback", func(t *testing.T) {
@@ -1265,7 +1333,6 @@ func TestCassete(t *testing.T) {
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes
 	// TODO Can be used as grpc middleware at server
-	// TODO Can list created cassettes
 	// TODO Can finalize cassette and drop it from active cassettes list
 }
 
