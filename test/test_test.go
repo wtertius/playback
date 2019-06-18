@@ -727,6 +727,33 @@ func TestCassete(t *testing.T) {
 				assert.NotNil(t, response.Header)
 				assert.NotEqual(t, []byte{}, body)
 			})
+
+			t.Run("debugging mode diagnoses difference", func(t *testing.T) {
+				log := ""
+				p := playback.New().
+					SetDebug(true).
+					SetLogger(&variableLogger{log: &log})
+
+				cassette, _ := p.NewCassette()
+				cassette.SetMode(playback.ModeRecord)
+
+				httpClient := &http.Client{
+					Transport: p.HTTPTransport(http.DefaultTransport),
+				}
+
+				req, _ := http.NewRequest("GET", ts.URL, nil)
+				ctx := playback.NewContextWithCassette(req.Context(), cassette)
+				req = req.WithContext(ctx)
+				httpClient.Do(req)
+
+				cassette.SetMode(playback.ModePlayback)
+
+				req, _ = http.NewRequest("GET", ts.URL+"?a=b", nil)
+				req = req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
+				httpClient.Do(req)
+
+				assert.Contains(t, log, "Can't find match by key")
+			})
 		})
 
 		tests := []struct {
@@ -1256,4 +1283,12 @@ func runGRPCServer(sayHello sayHelloFunc, opts ...grpc.ServerOption) (*grpc.Serv
 	}()
 
 	return s, listener
+}
+
+type variableLogger struct {
+	log *string
+}
+
+func (l *variableLogger) Debugf(format string, args ...interface{}) {
+	*l.log += fmt.Sprintf(format, args...)
 }

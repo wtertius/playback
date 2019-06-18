@@ -44,6 +44,8 @@ func (r *HTTPRecorder) playback(req *http.Request) (*http.Response, error) {
 
 	err := rec.Playback()
 	if err != nil {
+		r.cassette.debugRecordMatch(rec, KindHTTP, req.URL.Path+"?")
+
 		return nil, err
 	}
 

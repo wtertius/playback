@@ -17,6 +17,8 @@ type Playback struct {
 	Error error
 
 	defaultMode Mode
+	debug       bool
+	logger      Logger
 	fileMask    string
 	withFile    bool
 	cassettes   map[string]*Cassette
@@ -30,6 +32,7 @@ func New(opts ...Option) *Playback {
 	p := &Playback{
 		fileMask:  FileMask,
 		cassettes: make(map[string]*Cassette),
+		logger:    &defaultLogger{},
 	}
 
 	return p
@@ -79,6 +82,38 @@ func (p *Playback) SetDefaultMode(mode Mode) *Playback {
 	p.defaultMode = mode
 
 	return p
+}
+
+func (p *Playback) SetDebug(debug bool) *Playback {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.debug = debug
+
+	return p
+}
+
+func (p *Playback) Debug() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.debug
+}
+
+func (p *Playback) SetLogger(logger Logger) *Playback {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.logger = logger
+
+	return p
+}
+
+func (p *Playback) getLogger() Logger {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.logger
 }
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {

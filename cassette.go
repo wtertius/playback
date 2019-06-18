@@ -3,12 +3,15 @@ package playback
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 
+	"github.com/sergi/go-diff/diffmatchpatch"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -20,23 +23,31 @@ type track struct {
 	records []*record
 }
 
+type trackMap map[string]*track
+
 type Cassette struct {
 	ID string
 
 	writer     Writer
 	playback   *Playback
-	tracks     map[RecordKind]map[string]*track
+	tracks     map[RecordKind]trackMap
 	err        error
 	recID      uint64
 	recordByID map[uint64]*record
 	locked     bool
 	mode       Mode
 	syncMode   SyncMode
+	debug      bool
+	logger     Logger
 	mu         sync.RWMutex
 }
 
 func newCassette(p *Playback) *Cassette {
-	c := &Cassette{playback: p}
+	c := &Cassette{
+		playback: p,
+		logger:   p.getLogger(),
+		debug:    p.Debug(),
+	}
 	c.ID = p.generateID()
 	c.reset()
 	c.mode = p.Mode()
@@ -116,6 +127,31 @@ func (c *Cassette) SetMode(mode Mode) *Cassette {
 	return c
 }
 
+func (c *Cassette) Debug() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.debug
+}
+
+func (c *Cassette) SetDebug(debug bool) *Cassette {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.debug = debug
+
+	return c
+}
+
+func (c *Cassette) SetLogger(logger Logger) *Cassette {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.logger = logger
+
+	return c
+}
+
 func (c *Cassette) WithFile() (*Cassette, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -165,7 +201,7 @@ func (c *Cassette) reset() {
 	c.recID = 0
 	c.err = nil
 	c.recordByID = make(map[uint64]*record, 10)
-	c.tracks = make(map[RecordKind]map[string]*track, 5)
+	c.tracks = make(map[RecordKind]trackMap, 5)
 
 	for _, kindTracks := range c.tracks {
 		for _, keyTrack := range kindTracks {
@@ -439,10 +475,26 @@ func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
 	return httpReadResponse(rec.Response, req)
 }
 
-func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
+func (c *Cassette) Get(kind RecordKind, key string) (*record, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.get(kind, key)
+}
+
+func (c *Cassette) get(kind RecordKind, key string) (*record, error) {
+	track, err := c.getTrack(kind, key)
+	if err != nil {
+		return nil, err
+	}
+
+	rec := track.records[track.cursor]
+	track.cursor++
+
+	return rec, nil
+}
+
+func (c *Cassette) getTrack(kind RecordKind, key string) (*track, error) {
 	if c.tracks[kind] == nil || c.tracks[kind][key] == nil {
 		c.err = errCassetteGetFailed
 		return nil, errCassetteGetFailed
@@ -454,10 +506,50 @@ func (c *Cassette) Get(kind RecordKind, key string) (rec *record, err error) {
 		return nil, errCassetteGetFailed
 	}
 
-	rec = track.records[track.cursor]
-	track.cursor++
+	return track, nil
+}
 
-	return rec, nil
+func (c *Cassette) getByPrefix(kind RecordKind, prefix string) (rec *record, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.tracks[kind] == nil {
+		c.err = errCassetteGetFailed
+		return nil, errCassetteGetFailed
+	}
+
+	for key := range c.tracks[kind] {
+		if strings.HasPrefix(key, prefix) {
+			track, err := c.getTrack(kind, key)
+			if err != nil {
+				return nil, err
+			}
+
+			rec := track.records[track.cursor]
+			return rec, nil
+		}
+	}
+
+	return nil, errCassetteGetFailed
+}
+
+func (c *Cassette) getByKind(kind RecordKind) ([]*record, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.tracks[kind] == nil {
+		c.err = errCassetteGetFailed
+		return nil, errCassetteGetFailed
+	}
+
+	records := make([]*record, 0, len(c.tracks[kind])*2)
+	for _, track := range c.tracks[kind] {
+		for _, rec := range track.records {
+			records = append(records, rec)
+		}
+	}
+
+	return records, nil
 }
 
 func (c *Cassette) Keys() map[RecordKind]map[string]struct{} {
@@ -523,7 +615,7 @@ func (c *Cassette) add(rec *record) {
 	c.recordByID[rec.ID] = rec
 
 	if c.tracks[rec.Kind] == nil {
-		c.tracks[rec.Kind] = make(map[string]*track, 5)
+		c.tracks[rec.Kind] = make(trackMap, 5)
 	}
 	if c.tracks[rec.Kind][rec.Key] == nil {
 		c.tracks[rec.Kind][rec.Key] = &track{
@@ -533,6 +625,43 @@ func (c *Cassette) add(rec *record) {
 	}
 	track := c.tracks[rec.Kind][rec.Key]
 	track.records = append(track.records, rec)
+}
+
+func (c *Cassette) debugRecordMatch(rec *record, kind RecordKind, prefix string) {
+	if !c.Debug() {
+		return
+	}
+
+	recMatched, e := c.getByPrefix(kind, prefix)
+	if e == nil {
+		c.diffRecords(fmt.Sprintf("Can't find match by key '%s'.", rec.Key), rec, recMatched)
+		return
+	}
+
+	c.logger.Debugf("Can't find match by key '%s' or prefix '%s'.\n", rec.Key, prefix)
+	c.logger.Debugf("<<ALL_MATCHES\n")
+
+	records, e := c.getByKind(kind)
+	for i, recHTTP := range records {
+		c.diffRecords(fmt.Sprintf("Listing all HTTP options. Option %d:", i), rec, recHTTP)
+	}
+
+	c.logger.Debugf("ALL_MATCHES\n")
+}
+
+func (c *Cassette) diffRecords(phrase string, recordOriginal, recordMatched *record) {
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(recordOriginal.Request, recordMatched.Request, false)
+
+	c.logger.Debugf("%s\n\n"+
+		"Original: <<END\n%s\nEND\n\n"+
+		"Nearest match <<END:\n%s\nEND\n\n"+
+		"Difference: <<END\n%s\nEND\n\n",
+		phrase,
+		recordOriginal.Request,
+		recordMatched.Request,
+		dmp.DiffPrettyText(diffs),
+	)
 }
 
 func (c *Cassette) MarshalToYAML() []byte {
