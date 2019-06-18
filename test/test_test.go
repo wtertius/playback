@@ -1078,6 +1078,48 @@ func TestCassete(t *testing.T) {
 				body, _ = ioutil.ReadAll(resp.Body)
 				assert.Equal(t, expectedBody, string(body))
 			})
+			t.Run("Get cassette from server using HTTP method", func(t *testing.T) {
+				cassette, _ := playback.New().NewCassette()
+
+				req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+				cassette.SetHTTPRequest(req)
+				serverRequest, _ := http.NewRequest("GET", ts.URL, nil)
+				cassette.AddHTTPRecord(serverRequest, httphelper.ResponseFromString(httpBody), nil)
+				cassette.AddResultRecord("test", "", resultResponse, nil, nil)
+				cassette.SetHTTPResponse(req, httphelper.ResponseFromString(expectedBody))
+
+				cassette.SetMode(playback.ModePlayback)
+
+				t.Run("Return 400 if no cassette ID given", func(t *testing.T) {
+					req = httptest.NewRequest("GET", "http://example.com/playback/get/", nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+				})
+				t.Run("Return 404 if no such cassette", func(t *testing.T) {
+					req = httptest.NewRequest("GET", "http://example.com/playback/get/?id="+cassette.ID, nil)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+				})
+
+				t.Run("Return cassette YAML if cassette added", func(t *testing.T) {
+					p.Add(cassette)
+
+					w := httptest.NewRecorder()
+					handler.ServeHTTP(w, req)
+					resp := w.Result()
+					body, _ := ioutil.ReadAll(resp.Body)
+					cassetteYAML := string(body)
+					assert.Equal(t, string(cassette.MarshalToYAML()), cassetteYAML)
+				})
+			})
+			// TODO Admin: Can list cassettes
+			// TODO Admin: Can delete cassette
 		})
 	})
 	t.Run("playback.GRPC: record and playback", func(t *testing.T) {
@@ -1219,9 +1261,6 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
-	// TODO Admin: Can download cassette by ID
-	// TODO Admin: Can list cassettes
-	// TODO Admin: Can delete cassette
 	// TODO clean cassettes map in Playback by time or count
 	// TODO? result.Func can return error.
 	// TODO Can record background cassette and link it with per call cassettes
