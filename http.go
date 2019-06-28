@@ -7,8 +7,7 @@ import (
 var _ http.RoundTripper = httpPlayback{}
 
 type httpPlayback struct {
-	Real     http.RoundTripper
-	playback *Playback
+	Real http.RoundTripper
 }
 
 func (p httpPlayback) RoundTrip(req *http.Request) (res *http.Response, err error) {

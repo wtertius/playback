@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"database/sql"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,12 +24,13 @@ import (
 	"time"
 
 	pb "cloud.google.com/go/trace/testdata/helloworld"
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
-	yaml "gopkg.in/yaml.v2"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+	yaml "gopkg.in/yaml.v2"
 
 	"github.com/wtertius/playback"
 	"github.com/wtertius/playback/httphelper"
@@ -1330,6 +1332,77 @@ func TestCassete(t *testing.T) {
 		})
 	})
 
+	t.Run("playback.DB: record and playback", func(t *testing.T) {
+		type Post struct {
+			ID    int
+			Title string
+			Body  string
+		}
+
+		selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
+			rows, err := db.QueryContext(ctx, `SELECT "id", "title", "body" FROM posts`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rows.Close()
+
+			var posts []*Post
+			for rows.Next() {
+				post := &Post{}
+				err := rows.Scan(&post.ID, &post.Title, &post.Body)
+				if err != nil {
+					t.Fatalf("failed to scan post: %s", err)
+				}
+				posts = append(posts, post)
+			}
+
+			return posts
+		}
+
+		t.Run("select", func(t *testing.T) {
+			p := playback.New().SetDefaultMode(playback.ModeRecord)
+			cassette, _ := p.NewCassette()
+			ctx := playback.NewContextWithCassette(context.Background(), cassette)
+
+			dsn := "sqlmock_db_playback_dsn"
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", dsn)
+			_, mock, _ := sqlmock.NewWithDSN(dsn)
+			db, _ := sql.Open(driverName, dsn)
+			defer db.Close()
+
+			postsExpected := []*Post{
+				{1, "post 1", "hello"},
+				{2, "post 2", "world"},
+			}
+
+			rows := func() *sqlmock.Rows {
+				rows := sqlmock.NewRows([]string{"id", "title", "body"})
+				for _, post := range postsExpected {
+					rows.AddRow(post.ID, post.Title, post.Body)
+				}
+				return rows
+			}
+
+			mock.ExpectQuery("^SELECT (.+) FROM posts$").WillReturnRows(rows())
+
+			posts := selectPosts(ctx, db)
+
+			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+			assert.Equal(t, postsExpected, posts)
+
+			cassette.SetMode(playback.ModePlayback)
+
+			driverName, dsn = p.SQLNameAndDSN("sqlmock", dsn)
+
+			posts = selectPosts(ctx, db)
+
+			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+			assert.Equal(t, postsExpected, posts)
+
+			assert.True(t, cassette.IsPlaybackSucceeded())
+		})
+	})
+
 	t.Run("playback automatically cleans cassete list by timer", func(t *testing.T) {
 		t.Run("Doesn't clean immediately by default", func(t *testing.T) {
 			p := playback.New()
@@ -1350,6 +1423,8 @@ func TestCassete(t *testing.T) {
 			assert.Nil(t, p.Get(cassette.ID))
 		})
 	})
+
+	// TODO Separate go.mod for ./test/
 }
 
 func tempFile(t *testing.T, mask string) *os.File {

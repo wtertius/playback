@@ -131,8 +131,7 @@ func (p *Playback) getLogger() Logger {
 
 func (p *Playback) HTTPTransport(transport http.RoundTripper) http.RoundTripper {
 	return httpPlayback{
-		Real:     transport,
-		playback: p,
+		Real: transport,
 	}
 }
 
