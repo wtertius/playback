@@ -6,22 +6,22 @@ import (
 	"fmt"
 )
 
-type sqlRowsRecorder struct {
-	queryerContext driver.QueryerContext
-	cassette       *Cassette
-	rec            *record
+type sqlResultRecorder struct {
+	execerContext driver.ExecerContext
+	cassette      *Cassette
+	rec           *record
 
 	ctx   context.Context
 	query string
 	args  []driver.NamedValue
-	rows  driver.Rows
+	rows  driver.Result
 	err   error
 }
 
-func newSQLRowsRecorder(ctx context.Context, queryerContext driver.QueryerContext, query string, args []driver.NamedValue) *sqlRowsRecorder {
-	recorder := &sqlRowsRecorder{
-		queryerContext: queryerContext,
-		cassette:       CassetteFromContext(ctx),
+func newSQLResultRecorder(ctx context.Context, execerContext driver.ExecerContext, query string, args []driver.NamedValue) *sqlResultRecorder {
+	recorder := &sqlResultRecorder{
+		execerContext: execerContext,
+		cassette:      CassetteFromContext(ctx),
 
 		ctx:   ctx,
 		query: query,
@@ -31,12 +31,12 @@ func newSQLRowsRecorder(ctx context.Context, queryerContext driver.QueryerContex
 	return recorder
 }
 
-func (r *sqlRowsRecorder) Call() error {
+func (r *sqlResultRecorder) Call() error {
 	r.rows, r.err = r.call(r.ctx, r.query, r.args)
 	return r.err
 }
 
-func (r *sqlRowsRecorder) call(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+func (r *sqlResultRecorder) call(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	defer func() {
 		if r.rec == nil {
 			return
@@ -47,16 +47,16 @@ func (r *sqlRowsRecorder) call(ctx context.Context, query string, args []driver.
 		}
 	}()
 
-	return r.queryerContext.QueryContext(ctx, query, args)
+	return r.execerContext.ExecContext(ctx, query, args)
 }
 
-func (r *sqlRowsRecorder) Record() error {
+func (r *sqlResultRecorder) Record() error {
 	r.rows, r.err = r.record(r.ctx, r.query, r.args)
 
 	return r.err
 }
 
-func (r *sqlRowsRecorder) record(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+func (r *sqlResultRecorder) record(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	rec := r.newRecord(ctx, query, args)
 	if rec == nil {
 		return r.call(ctx, query, args)
@@ -72,23 +72,23 @@ func (r *sqlRowsRecorder) record(ctx context.Context, query string, args []drive
 	return r.rows, err
 }
 
-func (r *sqlRowsRecorder) RecordResponse(rows driver.Rows, err error) {
-	mockRows := NewMockSQLDriverRowsFrom(rows)
-	r.rows = mockRows
-	r.rec.Response = string(mockRows.Marshal())
+func (r *sqlResultRecorder) RecordResponse(rows driver.Result, err error) {
+	mockResult := NewMockSQLDriverResultFrom(rows)
+	r.rows = mockResult
+	r.rec.Response = string(mockResult.Marshal())
 
 	r.rec.Err = RecordError{err}
 
 	r.rec.Record()
 }
 
-func (r *sqlRowsRecorder) Playback() error {
+func (r *sqlResultRecorder) Playback() error {
 	r.rows, r.err = r.playback(r.ctx, r.query, r.args)
 
 	return r.err
 }
 
-func (r *sqlRowsRecorder) playback(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+func (r *sqlResultRecorder) playback(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	rec := r.newRecord(ctx, query, args)
 	if rec == nil {
 		return nil, ErrPlaybackFailed
@@ -99,7 +99,7 @@ func (r *sqlRowsRecorder) playback(ctx context.Context, query string, args []dri
 		return nil, err
 	}
 
-	rows := NewMockSQLDriverRows()
+	rows := NewMockSQLDriverResult()
 	err = rows.Unmarshal([]byte(r.rec.Response))
 	if err != nil {
 		return nil, ErrPlaybackFailed
@@ -110,11 +110,11 @@ func (r *sqlRowsRecorder) playback(ctx context.Context, query string, args []dri
 	return rows, rec.Err.error
 }
 
-func (r *sqlRowsRecorder) newRecord(ctx context.Context, query string, args []driver.NamedValue) *record {
+func (r *sqlResultRecorder) newRecord(ctx context.Context, query string, args []driver.NamedValue) *record {
 	requestDump := fmt.Sprintf("%s\n%#v\n", query, args)
 
 	r.rec = &record{
-		Kind:     KindSQLRows,
+		Kind:     KindSQLResult,
 		Key:      query,
 		Request:  requestDump,
 		cassette: r.cassette,

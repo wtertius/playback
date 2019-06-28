@@ -31,3 +31,12 @@ func (w *SQLWrapper) QueryerContext(queryerContext driver.QueryerContext) driver
 		return recorder.rows, recorder.err
 	})
 }
+
+func (w *SQLWrapper) ExecerContext(execerContext driver.ExecerContext) driver.ExecerContext {
+	return sqlmwdriver.ExecerContextFunc(func(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+		recorder := newSQLResultRecorder(ctx, execerContext, query, args)
+		recorder.cassette.Run(recorder)
+
+		return recorder.rows, recorder.err
+	})
+}

@@ -24,16 +24,16 @@ import (
 	"time"
 
 	pb "cloud.google.com/go/trace/testdata/helloworld"
+
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/test/bufconn"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	yaml "gopkg.in/yaml.v2"
+	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/wtertius/playback"
 	"github.com/wtertius/playback/httphelper"
+	yaml "gopkg.in/yaml.v2"
 )
 
 func TestCassete(t *testing.T) {
@@ -1359,13 +1359,12 @@ func TestCassete(t *testing.T) {
 			return posts
 		}
 
-		t.Run("select", func(t *testing.T) {
+		t.Run("QueryContext", func(t *testing.T) {
 			p := playback.New().SetDefaultMode(playback.ModeRecord)
 			cassette, _ := p.NewCassette()
 			ctx := playback.NewContextWithCassette(context.Background(), cassette)
 
-			dsn := "sqlmock_db_playback_dsn"
-			driverName, dsn := p.SQLNameAndDSN("sqlmock", dsn)
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", t.Name())
 			_, mock, _ := sqlmock.NewWithDSN(dsn)
 			db, _ := sql.Open(driverName, dsn)
 			defer db.Close()
@@ -1392,12 +1391,51 @@ func TestCassete(t *testing.T) {
 
 			cassette.SetMode(playback.ModePlayback)
 
-			driverName, dsn = p.SQLNameAndDSN("sqlmock", dsn)
-
 			posts = selectPosts(ctx, db)
 
 			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
 			assert.Equal(t, postsExpected, posts)
+
+			assert.True(t, cassette.IsPlaybackSucceeded())
+		})
+
+		insertPosts := func(ctx context.Context, db *sql.DB) (int64, int64) {
+			result, err := db.ExecContext(ctx, `INSERT INTO posts ("id", "title", "body") VALUES (?, ?, ?)`, 1, "post 1", "hello")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			lastInsertId, _ := result.LastInsertId()
+			rowsAffected, _ := result.RowsAffected()
+
+			return lastInsertId, rowsAffected
+		}
+
+		t.Run("ExecContext", func(t *testing.T) {
+			p := playback.New().SetDefaultMode(playback.ModeRecord)
+			cassette, _ := p.NewCassette()
+			ctx := playback.NewContextWithCassette(context.Background(), cassette)
+
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", t.Name())
+			_, mock, _ := sqlmock.NewWithDSN(dsn)
+			db, _ := sql.Open(driverName, dsn)
+			defer db.Close()
+
+			mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+
+			lastInsertId, rowsAffected := insertPosts(ctx, db)
+
+			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+			assert.Equal(t, int64(1), lastInsertId)
+			assert.Equal(t, int64(1), rowsAffected)
+
+			cassette.SetMode(playback.ModePlayback)
+
+			lastInsertId, rowsAffected = insertPosts(ctx, db)
+
+			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+			assert.Equal(t, int64(1), lastInsertId)
+			assert.Equal(t, int64(1), rowsAffected)
 
 			assert.True(t, cassette.IsPlaybackSucceeded())
 		})

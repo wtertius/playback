@@ -7,17 +7,17 @@ import (
 	"io"
 )
 
-type mockSQLDriverRows struct {
+type MockSQLDriverRows struct {
 	ColumnsSet []string
 	ValuesSet  [][]driver.Value
 	cursor     uint64
 }
 
-func newMockSQLDriverRowsFrom(rowsSource driver.Rows) *mockSQLDriverRows {
+func NewMockSQLDriverRowsFrom(rowsSource driver.Rows) *MockSQLDriverRows {
 	defer rowsSource.Close()
 
 	columns := rowsSource.Columns()
-	rows := newMockSQLDriverRows()
+	rows := NewMockSQLDriverRows()
 	rows.ColumnsSet = columns
 
 	count := len(columns)
@@ -35,23 +35,23 @@ func newMockSQLDriverRowsFrom(rowsSource driver.Rows) *mockSQLDriverRows {
 	return rows
 }
 
-func newMockSQLDriverRows() *mockSQLDriverRows {
-	return &mockSQLDriverRows{
+func NewMockSQLDriverRows() *MockSQLDriverRows {
+	return &MockSQLDriverRows{
 		ColumnsSet: []string{},
 		ValuesSet:  make([][]driver.Value, 0, 2),
 	}
 }
 
-func (rows *mockSQLDriverRows) Columns() []string {
+func (rows *MockSQLDriverRows) Columns() []string {
 	return rows.ColumnsSet
 }
 
-func (rows *mockSQLDriverRows) Close() error {
-	rows = &mockSQLDriverRows{}
+func (rows *MockSQLDriverRows) Close() error {
+	rows = &MockSQLDriverRows{}
 	return nil
 }
 
-func (rows *mockSQLDriverRows) Next(dest []driver.Value) error {
+func (rows *MockSQLDriverRows) Next(dest []driver.Value) error {
 	if len(rows.ValuesSet) <= 0 {
 		return sql.ErrNoRows
 	} else if len(rows.ValuesSet) <= int(rows.cursor) {
@@ -64,15 +64,15 @@ func (rows *mockSQLDriverRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func (rows *mockSQLDriverRows) AppendValues(values []driver.Value) {
+func (rows *MockSQLDriverRows) AppendValues(values []driver.Value) {
 	rows.ValuesSet = append(rows.ValuesSet, values)
 }
 
-func (rows *mockSQLDriverRows) Marshal() []byte {
+func (rows *MockSQLDriverRows) Marshal() []byte {
 	dump, _ := json.Marshal(rows)
 	return dump
 }
 
-func (rows *mockSQLDriverRows) Unmarshal(data []byte) error {
+func (rows *MockSQLDriverRows) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, rows)
 }

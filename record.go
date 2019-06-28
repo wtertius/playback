@@ -18,6 +18,7 @@ const (
 	KindHTTPRequest = RecordKind("http_request")
 	KindGRPCRequest = RecordKind("grpc_request")
 	KindSQLRows     = RecordKind("sql_rows")
+	KindSQLResult   = RecordKind("sql_result")
 
 	DefaultKey = ""
 )
