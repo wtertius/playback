@@ -1360,7 +1360,7 @@ func TestCassete(t *testing.T) {
 		}
 
 		t.Run("QueryContext", func(t *testing.T) {
-			p := playback.New().SetDefaultMode(playback.ModeRecord)
+			p := playback.New()
 			cassette, _ := p.NewCassette()
 			ctx := playback.NewContextWithCassette(context.Background(), cassette)
 
@@ -1382,21 +1382,36 @@ func TestCassete(t *testing.T) {
 				return rows
 			}
 
-			mock.ExpectQuery("^SELECT (.+) FROM posts$").WillReturnRows(rows())
+			t.Run("ModeOff", func(t *testing.T) {
+				cassette.SetMode(playback.ModeOff)
 
-			posts := selectPosts(ctx, db)
+				mock.ExpectQuery("^SELECT (.+) FROM posts$").WillReturnRows(rows())
+				posts := selectPosts(ctx, db)
 
-			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
-			assert.Equal(t, postsExpected, posts)
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+			})
 
-			cassette.SetMode(playback.ModePlayback)
+			t.Run("ModeRecord", func(t *testing.T) {
+				cassette.SetMode(playback.ModeRecord)
 
-			posts = selectPosts(ctx, db)
+				mock.ExpectQuery("^SELECT (.+) FROM posts$").WillReturnRows(rows())
+				posts := selectPosts(ctx, db)
 
-			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
-			assert.Equal(t, postsExpected, posts)
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+			})
 
-			assert.True(t, cassette.IsPlaybackSucceeded())
+			t.Run("ModePlayback", func(t *testing.T) {
+				cassette.SetMode(playback.ModePlayback)
+
+				posts := selectPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
 		})
 
 		insertPosts := func(ctx context.Context, db *sql.DB) (int64, int64) {
@@ -1412,7 +1427,7 @@ func TestCassete(t *testing.T) {
 		}
 
 		t.Run("ExecContext", func(t *testing.T) {
-			p := playback.New().SetDefaultMode(playback.ModeRecord)
+			p := playback.New()
 			cassette, _ := p.NewCassette()
 			ctx := playback.NewContextWithCassette(context.Background(), cassette)
 
@@ -1421,23 +1436,41 @@ func TestCassete(t *testing.T) {
 			db, _ := sql.Open(driverName, dsn)
 			defer db.Close()
 
-			mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+			t.Run("ModeOff", func(t *testing.T) {
+				cassette.SetMode(playback.ModeOff)
 
-			lastInsertId, rowsAffected := insertPosts(ctx, db)
+				mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
 
-			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
-			assert.Equal(t, int64(1), lastInsertId)
-			assert.Equal(t, int64(1), rowsAffected)
+				lastInsertId, rowsAffected := insertPosts(ctx, db)
 
-			cassette.SetMode(playback.ModePlayback)
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+			})
 
-			lastInsertId, rowsAffected = insertPosts(ctx, db)
+			t.Run("ModeRecord", func(t *testing.T) {
+				cassette.SetMode(playback.ModeRecord)
 
-			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
-			assert.Equal(t, int64(1), lastInsertId)
-			assert.Equal(t, int64(1), rowsAffected)
+				mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
 
-			assert.True(t, cassette.IsPlaybackSucceeded())
+				lastInsertId, rowsAffected := insertPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+			})
+
+			t.Run("ModePlayback", func(t *testing.T) {
+				cassette.SetMode(playback.ModePlayback)
+
+				lastInsertId, rowsAffected := insertPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
 		})
 	})
 
