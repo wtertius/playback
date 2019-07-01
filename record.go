@@ -19,6 +19,7 @@ const (
 	KindGRPCRequest = RecordKind("grpc_request")
 	KindSQLRows     = RecordKind("sql_rows")
 	KindSQLResult   = RecordKind("sql_result")
+	KindSQLStmt     = RecordKind("sql_stmt")
 
 	DefaultKey = ""
 )

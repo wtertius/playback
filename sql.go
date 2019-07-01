@@ -25,7 +25,7 @@ type SQLWrapper struct {
 
 func (w *SQLWrapper) QueryerContext(queryerContext driver.QueryerContext) driver.QueryerContext {
 	return sqlmwdriver.QueryerContextFunc(func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-		recorder := newSQLRowsRecorder(ctx, queryerContext, query, args)
+		recorder := newSQLRowsRecorder(ctx, query).WithQueryerContext(queryerContext).WithNamedValues(args)
 		recorder.cassette.Run(recorder)
 
 		return recorder.rows, recorder.err
@@ -34,9 +34,18 @@ func (w *SQLWrapper) QueryerContext(queryerContext driver.QueryerContext) driver
 
 func (w *SQLWrapper) ExecerContext(execerContext driver.ExecerContext) driver.ExecerContext {
 	return sqlmwdriver.ExecerContextFunc(func(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-		recorder := newSQLResultRecorder(ctx, execerContext, query, args)
+		recorder := newSQLResultRecorder(ctx, query).WithExecerContext(execerContext).WithNamedValues(args)
 		recorder.cassette.Run(recorder)
 
-		return recorder.rows, recorder.err
+		return recorder.result, recorder.err
+	})
+}
+
+func (w *SQLWrapper) ConnPrepareContext(connPrepareContext driver.ConnPrepareContext) driver.ConnPrepareContext {
+	return sqlmwdriver.ConnPrepareContextFunc(func(ctx context.Context, query string) (driver.Stmt, error) {
+		recorder := newSQLStmtRecorder(ctx, connPrepareContext, query)
+		recorder.cassette.Run(recorder)
+
+		return recorder.stmt, recorder.err
 	})
 }

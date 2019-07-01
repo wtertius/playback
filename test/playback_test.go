@@ -1339,27 +1339,27 @@ func TestCassete(t *testing.T) {
 			Body  string
 		}
 
-		selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
-			rows, err := db.QueryContext(ctx, `SELECT "id", "title", "body" FROM posts`)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer rows.Close()
-
-			var posts []*Post
-			for rows.Next() {
-				post := &Post{}
-				err := rows.Scan(&post.ID, &post.Title, &post.Body)
-				if err != nil {
-					t.Fatalf("failed to scan post: %s", err)
-				}
-				posts = append(posts, post)
-			}
-
-			return posts
-		}
-
 		t.Run("QueryContext", func(t *testing.T) {
+			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
+				rows, err := db.QueryContext(ctx, `SELECT "id", "title", "body" FROM posts`)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer rows.Close()
+
+				var posts []*Post
+				for rows.Next() {
+					post := &Post{}
+					err := rows.Scan(&post.ID, &post.Title, &post.Body)
+					if err != nil {
+						t.Fatalf("failed to scan post: %s", err)
+					}
+					posts = append(posts, post)
+				}
+
+				return posts
+			}
+
 			p := playback.New()
 			cassette, _ := p.NewCassette()
 			ctx := playback.NewContextWithCassette(context.Background(), cassette)
@@ -1414,19 +1414,20 @@ func TestCassete(t *testing.T) {
 			})
 		})
 
-		insertPosts := func(ctx context.Context, db *sql.DB) (int64, int64) {
-			result, err := db.ExecContext(ctx, `INSERT INTO posts ("id", "title", "body") VALUES (?, ?, ?)`, 1, "post 1", "hello")
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			lastInsertId, _ := result.LastInsertId()
-			rowsAffected, _ := result.RowsAffected()
-
-			return lastInsertId, rowsAffected
-		}
-
 		t.Run("ExecContext", func(t *testing.T) {
+			insertPosts := func(ctx context.Context, db *sql.DB) (int64, int64) {
+				result, err := db.ExecContext(ctx, `INSERT INTO posts ("id", "title", "body") VALUES (?, ?, ?)`, 1, "post 1", "hello")
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				lastInsertId, _ := result.LastInsertId()
+				rowsAffected, _ := result.RowsAffected()
+
+				return lastInsertId, rowsAffected
+			}
+			sqlRegexp := "^INSERT INTO posts (.+) VALUES (.+)"
+
 			p := playback.New()
 			cassette, _ := p.NewCassette()
 			ctx := playback.NewContextWithCassette(context.Background(), cassette)
@@ -1439,7 +1440,7 @@ func TestCassete(t *testing.T) {
 			t.Run("ModeOff", func(t *testing.T) {
 				cassette.SetMode(playback.ModeOff)
 
-				mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec(sqlRegexp).WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
 
 				lastInsertId, rowsAffected := insertPosts(ctx, db)
 
@@ -1451,7 +1452,7 @@ func TestCassete(t *testing.T) {
 			t.Run("ModeRecord", func(t *testing.T) {
 				cassette.SetMode(playback.ModeRecord)
 
-				mock.ExpectExec("^INSERT INTO posts (.+) VALUES (.+)").WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectExec(sqlRegexp).WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
 
 				lastInsertId, rowsAffected := insertPosts(ctx, db)
 
@@ -1464,6 +1465,158 @@ func TestCassete(t *testing.T) {
 				cassette.SetMode(playback.ModePlayback)
 
 				lastInsertId, rowsAffected := insertPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
+		})
+
+		t.Run("PrepareContext Select", func(t *testing.T) {
+			selectRegexp := "^SELECT (.+) FROM posts WHERE id >= .$"
+			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
+				stmt, err := db.PrepareContext(ctx, `SELECT "id", "title", "body" FROM posts WHERE id >= ?`)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer stmt.Close()
+
+				rows, err := stmt.Query(1)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer rows.Close()
+
+				var posts []*Post
+				for rows.Next() {
+					post := &Post{}
+					err := rows.Scan(&post.ID, &post.Title, &post.Body)
+					if err != nil {
+						t.Fatalf("failed to scan post: %s", err)
+					}
+					posts = append(posts, post)
+				}
+
+				return posts
+			}
+
+			p := playback.New()
+			cassette, _ := p.NewCassette()
+			ctx := playback.NewContextWithCassette(context.Background(), cassette)
+
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", t.Name())
+			_, mock, _ := sqlmock.NewWithDSN(dsn)
+			db, _ := sql.Open(driverName, dsn)
+			defer db.Close()
+
+			postsExpected := []*Post{
+				{1, "post 1", "hello"},
+				{2, "post 2", "world"},
+			}
+
+			rows := func() *sqlmock.Rows {
+				rows := sqlmock.NewRows([]string{"id", "title", "body"})
+				for _, post := range postsExpected {
+					rows.AddRow(post.ID, post.Title, post.Body)
+				}
+				return rows
+			}
+
+			t.Run("ModeOff", func(t *testing.T) {
+				cassette.SetMode(playback.ModeOff)
+
+				mock.ExpectPrepare(selectRegexp)
+				mock.ExpectQuery(selectRegexp).WillReturnRows(rows())
+				posts := selectPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+			})
+
+			t.Run("ModeRecord", func(t *testing.T) {
+				cassette.SetMode(playback.ModeRecord)
+
+				mock.ExpectPrepare(selectRegexp)
+				mock.ExpectQuery(selectRegexp).WillReturnRows(rows())
+				posts := selectPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+			})
+
+			t.Run("ModePlayback", func(t *testing.T) {
+				cassette.SetMode(playback.ModePlayback)
+
+				posts := selectPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, postsExpected, posts)
+
+				assert.True(t, cassette.IsPlaybackSucceeded())
+			})
+		})
+
+		t.Run("PrepareContext Exec", func(t *testing.T) {
+			prepareAndInsertPosts := func(ctx context.Context, db *sql.DB) (int64, int64) {
+				stmt, err := db.PrepareContext(ctx, `INSERT INTO posts ("id", "title", "body") VALUES (?, ?, ?)`)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer stmt.Close()
+
+				result, err := stmt.Exec(1, "post 1", "hello")
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				lastInsertId, _ := result.LastInsertId()
+				rowsAffected, _ := result.RowsAffected()
+
+				return lastInsertId, rowsAffected
+			}
+			sqlRegexp := "^INSERT INTO posts (.+) VALUES (.+)"
+
+			p := playback.New()
+			cassette, _ := p.NewCassette()
+			ctx := playback.NewContextWithCassette(context.Background(), cassette)
+
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", t.Name())
+			_, mock, _ := sqlmock.NewWithDSN(dsn)
+			db, _ := sql.Open(driverName, dsn)
+			defer db.Close()
+
+			t.Run("ModeOff", func(t *testing.T) {
+				cassette.SetMode(playback.ModeOff)
+
+				mock.ExpectPrepare(sqlRegexp)
+				mock.ExpectExec(sqlRegexp).WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+
+				lastInsertId, rowsAffected := prepareAndInsertPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+			})
+
+			t.Run("ModeRecord", func(t *testing.T) {
+				cassette.SetMode(playback.ModeRecord)
+
+				mock.ExpectPrepare(sqlRegexp)
+				mock.ExpectExec(sqlRegexp).WithArgs(1, "post 1", "hello").WillReturnResult(sqlmock.NewResult(1, 1))
+
+				lastInsertId, rowsAffected := prepareAndInsertPosts(ctx, db)
+
+				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+				assert.Equal(t, int64(1), lastInsertId)
+				assert.Equal(t, int64(1), rowsAffected)
+			})
+
+			t.Run("ModePlayback", func(t *testing.T) {
+				cassette.SetMode(playback.ModePlayback)
+
+				lastInsertId, rowsAffected := prepareAndInsertPosts(ctx, db)
 
 				assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
 				assert.Equal(t, int64(1), lastInsertId)

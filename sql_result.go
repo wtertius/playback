@@ -7,36 +7,57 @@ import (
 )
 
 type sqlResultRecorder struct {
-	execerContext driver.ExecerContext
-	cassette      *Cassette
-	rec           *record
+	cassette *Cassette
+	rec      *record
 
-	ctx   context.Context
-	query string
-	args  []driver.NamedValue
-	rows  driver.Result
-	err   error
+	execer        driver.Execer
+	execerContext driver.ExecerContext
+
+	ctx         context.Context
+	query       string
+	namedValues []driver.NamedValue
+	values      []driver.Value
+	result      driver.Result
+	err         error
 }
 
-func newSQLResultRecorder(ctx context.Context, execerContext driver.ExecerContext, query string, args []driver.NamedValue) *sqlResultRecorder {
+func newSQLResultRecorder(ctx context.Context, query string) *sqlResultRecorder {
 	recorder := &sqlResultRecorder{
-		execerContext: execerContext,
-		cassette:      CassetteFromContext(ctx),
+		cassette: CassetteFromContext(ctx),
 
 		ctx:   ctx,
 		query: query,
-		args:  args,
 	}
 
 	return recorder
 }
 
+func (r *sqlResultRecorder) WithExecerContext(execerContext driver.ExecerContext) *sqlResultRecorder {
+	r.execerContext = execerContext
+	return r
+}
+
+func (r *sqlResultRecorder) WithExecer(execer driver.Execer) *sqlResultRecorder {
+	r.execer = execer
+	return r
+}
+
+func (r *sqlResultRecorder) WithNamedValues(namedValues []driver.NamedValue) *sqlResultRecorder {
+	r.namedValues = namedValues
+	return r
+}
+
+func (r *sqlResultRecorder) WithValues(values []driver.Value) *sqlResultRecorder {
+	r.values = values
+	return r
+}
+
 func (r *sqlResultRecorder) Call() error {
-	r.rows, r.err = r.call(r.ctx, r.query, r.args)
+	r.result, r.err = r.call(r.ctx, r.query)
 	return r.err
 }
 
-func (r *sqlResultRecorder) call(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+func (r *sqlResultRecorder) call(ctx context.Context, query string) (driver.Result, error) {
 	defer func() {
 		if r.rec == nil {
 			return
@@ -47,34 +68,38 @@ func (r *sqlResultRecorder) call(ctx context.Context, query string, args []drive
 		}
 	}()
 
-	return r.execerContext.ExecContext(ctx, query, args)
+	if r.execerContext != nil {
+		return r.execerContext.ExecContext(ctx, query, r.namedValues)
+	}
+
+	return r.execer.Exec(query, r.values)
 }
 
 func (r *sqlResultRecorder) Record() error {
-	r.rows, r.err = r.record(r.ctx, r.query, r.args)
+	r.result, r.err = r.record(r.ctx, r.query, r.namedValues)
 
 	return r.err
 }
 
-func (r *sqlResultRecorder) record(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	rec := r.newRecord(ctx, query, args)
+func (r *sqlResultRecorder) record(ctx context.Context, query string, namedValues []driver.NamedValue) (driver.Result, error) {
+	rec := r.newRecord(ctx, query)
 	if rec == nil {
-		return r.call(ctx, query, args)
+		return r.call(ctx, query)
 	}
 
 	r.rec.RecordRequest()
 
-	rows, err := r.call(ctx, query, args)
+	result, err := r.call(ctx, query)
 
-	r.RecordResponse(rows, err)
+	r.RecordResponse(result, err)
 	r.rec.PanicIfHas()
 
-	return r.rows, err
+	return r.result, err
 }
 
-func (r *sqlResultRecorder) RecordResponse(rows driver.Result, err error) {
-	mockResult := NewMockSQLDriverResultFrom(rows)
-	r.rows = mockResult
+func (r *sqlResultRecorder) RecordResponse(result driver.Result, err error) {
+	mockResult := NewMockSQLDriverResultFrom(result)
+	r.result = mockResult
 	r.rec.Response = string(mockResult.Marshal())
 
 	r.rec.Err = RecordError{err}
@@ -83,13 +108,13 @@ func (r *sqlResultRecorder) RecordResponse(rows driver.Result, err error) {
 }
 
 func (r *sqlResultRecorder) Playback() error {
-	r.rows, r.err = r.playback(r.ctx, r.query, r.args)
+	r.result, r.err = r.playback(r.ctx, r.query, r.namedValues)
 
 	return r.err
 }
 
-func (r *sqlResultRecorder) playback(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	rec := r.newRecord(ctx, query, args)
+func (r *sqlResultRecorder) playback(ctx context.Context, query string, namedValues []driver.NamedValue) (driver.Result, error) {
+	rec := r.newRecord(ctx, query)
 	if rec == nil {
 		return nil, ErrPlaybackFailed
 	}
@@ -99,19 +124,19 @@ func (r *sqlResultRecorder) playback(ctx context.Context, query string, args []d
 		return nil, err
 	}
 
-	rows := NewMockSQLDriverResult()
-	err = rows.Unmarshal([]byte(r.rec.Response))
+	result := NewMockSQLDriverResult()
+	err = result.Unmarshal([]byte(r.rec.Response))
 	if err != nil {
 		return nil, ErrPlaybackFailed
 	}
 
 	rec.PanicIfHas()
 
-	return rows, rec.Err.error
+	return result, rec.Err.error
 }
 
-func (r *sqlResultRecorder) newRecord(ctx context.Context, query string, args []driver.NamedValue) *record {
-	requestDump := fmt.Sprintf("%s\n%#v\n", query, args)
+func (r *sqlResultRecorder) newRecord(ctx context.Context, query string) *record {
+	requestDump := fmt.Sprintf("%s\n%#v\n%#v\n", query, r.namedValues, r.values)
 
 	r.rec = &record{
 		Kind:     KindSQLResult,
