@@ -23,8 +23,12 @@ func NewMockSQLDriverRowsFrom(rowsSource driver.Rows) *MockSQLDriverRows {
 	rows := NewMockSQLDriverRows()
 	rows.ColumnSet = columns
 
-	count := len(columns)
+	if rows, ok := rowsSource.(*MockSQLDriverRows); ok {
+		rows.defineColumnTypes()
+		return rows
+	}
 
+	count := len(columns)
 	for {
 		values := make([]driver.Value, count)
 		err := rowsSource.Next(values)
@@ -74,6 +78,10 @@ func (rows *MockSQLDriverRows) AppendValues(values []driver.Value) {
 }
 
 func (rows *MockSQLDriverRows) defineColumnTypes() {
+	if len(rows.ColumnTypes) > 0 {
+		return
+	}
+
 	rows.ColumnTypes = make([]string, len(rows.ColumnSet))
 	toFill := make(map[int]bool, len(rows.ColumnSet))
 	for i := range rows.ColumnSet {
@@ -159,7 +167,7 @@ func (rows *MockSQLDriverRows) restoreValueTypes() error {
 			switch typeOf.Kind() {
 			case reflect.Float64:
 				switch typ {
-				case "int64":
+				case "int", "int64":
 					row[i] = int64(row[i].(float64))
 				}
 

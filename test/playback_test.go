@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -1373,7 +1374,7 @@ func TestCassete(t *testing.T) {
 
 	t.Run("playback.DB: record and playback", func(t *testing.T) {
 		type Post struct {
-			ID    int
+			ID    int64
 			Title string
 			Body  string
 			Price float64
@@ -1664,6 +1665,65 @@ func TestCassete(t *testing.T) {
 
 				assert.True(t, cassette.IsPlaybackSucceeded())
 			})
+		})
+
+		t.Run("Make cassette manually and playback", func(t *testing.T) {
+			query := `SELECT "id", "title", "body" FROM posts WHERE id > :id;`
+			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
+				rows, err := db.QueryContext(ctx, query, sql.Named("id", 0))
+				if err != nil {
+					t.Fatalf("Can't select from db: %s", err)
+				}
+				defer rows.Close()
+
+				var posts []*Post
+				for rows.Next() {
+					post := &Post{}
+					err := rows.Scan(&post.ID, &post.Title, &post.Body, &post.Price)
+					if err != nil {
+						t.Fatalf("failed to scan post: %s", err)
+					}
+					posts = append(posts, post)
+				}
+
+				return posts
+			}
+
+			p := playback.New()
+			cassette, _ := p.NewCassette()
+			ctx := playback.NewContextWithCassette(context.Background(), cassette)
+
+			driverName, dsn := p.SQLNameAndDSN("sqlmock", t.Name())
+			_, mock, _ := sqlmock.NewWithDSN(dsn)
+			db, _ := sql.Open(driverName, dsn)
+			defer db.Close()
+
+			postsExpected := []*Post{
+				{1, "post 1", "hello", 750.0},
+				{2, "post 2", "world", 100.0},
+			}
+
+			rows := func() *playback.MockSQLDriverRows {
+				rows := &playback.MockSQLDriverRows{
+					ColumnSet: []string{"id", "title", "body", "price"},
+					ValueSet:  make([][]driver.Value, 0, 2),
+				}
+				for _, post := range postsExpected {
+					rows.ValueSet = append(rows.ValueSet, []driver.Value{post.ID, post.Title, post.Body, []uint8(fmt.Sprintf("%.4f", post.Price))})
+				}
+				return rows
+			}
+
+			cassette.AddSQLRows(query, rows(), nil)
+
+			cassette.SetMode(playback.ModePlayback)
+
+			posts := selectPosts(ctx, db)
+
+			assert.Nil(t, mock.ExpectationsWereMet(), "sql expectations were met")
+			assert.Equal(t, postsExpected, posts)
+
+			assert.True(t, cassette.IsPlaybackSucceeded())
 		})
 	})
 

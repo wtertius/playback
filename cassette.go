@@ -2,6 +2,8 @@ package playback
 
 import (
 	"bytes"
+	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -464,6 +466,24 @@ func (c *Cassette) AddResultRecord(key string, typString string, value interface
 	recorder := newResultRecorder(c, key, value, panicObject)
 	recorder.typString = typString
 	recorder.record()
+}
+
+func (c *Cassette) AddSQLRows(query string, rows driver.Rows, err error, options ...SQLRowsRecorderOption) *SQLRowsRecorder {
+	recorder := &SQLRowsRecorder{
+		cassette: c,
+		query:    query,
+	}
+
+	recorder.ApplyOptions(options...)
+
+	recorder.newRecord(context.Background(), query)
+	if rows == nil && err == nil {
+		recorder.rec.RecordRequest()
+		return recorder
+	}
+
+	recorder.RecordResponse(rows, err)
+	return recorder
 }
 
 func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {
