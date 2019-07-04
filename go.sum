@@ -88,8 +88,8 @@ github.com/smartystreets/goconvey v0.0.0-20190306220146-200a235640ff/go.mod h1:K
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.2.2 h1:bSDNvY7ZPG5RlJ8otE/7V6gMiyenm9RtJ7IUVIAoJ1w=
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
-github.com/wtertius/sqlmw v0.1.0 h1:nInc8idFrkE0DveVZ0I1T8K0kQgNQJ6FAv40KH3jR2I=
-github.com/wtertius/sqlmw v0.1.0/go.mod h1:Pwv2C6R1ec7LY2xqGhRjywU4EjytYWuW3zO0yPmSyYo=
+github.com/wtertius/sqlmw v0.1.1 h1:gXPF1urSDlkJQWS/0R8hWFQriGWwqmk02sD/x5eL9LI=
+github.com/wtertius/sqlmw v0.1.1/go.mod h1:Pwv2C6R1ec7LY2xqGhRjywU4EjytYWuW3zO0yPmSyYo=
 go.opencensus.io v0.20.1/go.mod h1:6WKK9ahsWS3RSO+PY9ZHZUfv2irvY6gN279GOPZjmmk=
 golang.org/x/crypto v0.0.0-20180904163835-0709b304e793/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=

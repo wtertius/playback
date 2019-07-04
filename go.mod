@@ -7,7 +7,7 @@ require (
 	github.com/sergi/go-diff v1.0.0
 	github.com/smartystreets/goconvey v0.0.0-20190306220146-200a235640ff // indirect
 	github.com/stretchr/testify v1.2.2
-	github.com/wtertius/sqlmw v0.1.0
+	github.com/wtertius/sqlmw v0.1.1
 	google.golang.org/grpc v1.19.0
 	gopkg.in/yaml.v2 v2.2.2
 )
