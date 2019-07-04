@@ -850,7 +850,7 @@ func TestCassete(t *testing.T) {
 						cassette, _ := p.CassetteFromFile(cassettePathName)
 						req := req.WithContext(playback.NewContextWithCassette(req.Context(), cassette))
 
-						w = httptest.NewRecorder()
+						w := httptest.NewRecorder()
 						handler.ServeHTTP(w, req)
 
 						resp := w.Result()
@@ -867,7 +867,7 @@ func TestCassete(t *testing.T) {
 						req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
 						req.Header.Set(playback.HeaderCassetteID, cassetteID)
 
-						w = httptest.NewRecorder()
+						w := httptest.NewRecorder()
 						handler.ServeHTTP(w, req)
 
 						resp := w.Result()
@@ -884,7 +884,7 @@ func TestCassete(t *testing.T) {
 						req.Header.Set(playback.HeaderCassettePathName, cassettePathName)
 						req.Header.Set(playback.HeaderCassettePathType, string(playback.PathTypeFile))
 
-						w = httptest.NewRecorder()
+						w := httptest.NewRecorder()
 						handler.ServeHTTP(w, req)
 
 						resp := w.Result()
@@ -923,6 +923,45 @@ func TestCassete(t *testing.T) {
 
 						assert.Equal(t, responseDumpExpected, responseDumpGot)
 						assert.Equal(t, body, bodyGot)
+					})
+
+					t.Run("record and playback cassette using request headers", func(t *testing.T) {
+						cassetteID := ""
+						expectedBody := ""
+						{ // Record
+							req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+							req.Header.Set(playback.HeaderMode, string(playback.ModeRecord))
+
+							w := httptest.NewRecorder()
+							handler.ServeHTTP(w, req)
+
+							resp := w.Result()
+							body, _ = ioutil.ReadAll(resp.Body)
+							expectedBody = string(body)
+
+							assert.Equal(t, string(playback.ModeRecord), resp.Header.Get(playback.HeaderMode))
+							assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
+
+							defer removeFilename(t, resp.Header.Get(playback.HeaderCassettePathName))
+
+							cassetteID = resp.Header.Get(playback.HeaderCassetteID)
+						}
+						{ // Playback
+							req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+							req.Header.Set(playback.HeaderCassetteID, cassetteID)
+							req.Header.Set(playback.HeaderMode, string(playback.ModePlayback))
+
+							w := httptest.NewRecorder()
+							handler.ServeHTTP(w, req)
+
+							resp := w.Result()
+							body, _ = ioutil.ReadAll(resp.Body)
+							assert.Equal(t, expectedBody, string(body))
+
+							assert.Equal(t, string(playback.ModePlayback), resp.Header.Get(playback.HeaderMode))
+							assert.Equal(t, cassetteID, resp.Header.Get(playback.HeaderCassetteID))
+							assert.Equal(t, "true", resp.Header.Get(playback.HeaderSuccess))
+						}
 					})
 				})
 			})
@@ -1337,20 +1376,21 @@ func TestCassete(t *testing.T) {
 			ID    int
 			Title string
 			Body  string
+			Price float64
 		}
 
 		t.Run("QueryContext", func(t *testing.T) {
 			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
 				rows, err := db.QueryContext(ctx, `SELECT "id", "title", "body" FROM posts`)
 				if err != nil {
-					t.Fatal(err)
+					t.Fatalf("Can't select from db: %s", err)
 				}
 				defer rows.Close()
 
 				var posts []*Post
 				for rows.Next() {
 					post := &Post{}
-					err := rows.Scan(&post.ID, &post.Title, &post.Body)
+					err := rows.Scan(&post.ID, &post.Title, &post.Body, &post.Price)
 					if err != nil {
 						t.Fatalf("failed to scan post: %s", err)
 					}
@@ -1370,14 +1410,14 @@ func TestCassete(t *testing.T) {
 			defer db.Close()
 
 			postsExpected := []*Post{
-				{1, "post 1", "hello"},
-				{2, "post 2", "world"},
+				{1, "post 1", "hello", 750.0},
+				{2, "post 2", "world", 100.0},
 			}
 
 			rows := func() *sqlmock.Rows {
-				rows := sqlmock.NewRows([]string{"id", "title", "body"})
+				rows := sqlmock.NewRows([]string{"id", "title", "body", "price"})
 				for _, post := range postsExpected {
-					rows.AddRow(post.ID, post.Title, post.Body)
+					rows.AddRow(post.ID, post.Title, post.Body, []uint8(fmt.Sprintf("%.4f", post.Price)))
 				}
 				return rows
 			}
@@ -1477,7 +1517,7 @@ func TestCassete(t *testing.T) {
 		t.Run("PrepareContext Select", func(t *testing.T) {
 			selectRegexp := "^SELECT (.+) FROM posts WHERE id >= .$"
 			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
-				stmt, err := db.PrepareContext(ctx, `SELECT "id", "title", "body" FROM posts WHERE id >= ?`)
+				stmt, err := db.PrepareContext(ctx, `SELECT "id", "title", "body", "price" FROM posts WHERE id >= ?`)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1492,7 +1532,7 @@ func TestCassete(t *testing.T) {
 				var posts []*Post
 				for rows.Next() {
 					post := &Post{}
-					err := rows.Scan(&post.ID, &post.Title, &post.Body)
+					err := rows.Scan(&post.ID, &post.Title, &post.Body, &post.Price)
 					if err != nil {
 						t.Fatalf("failed to scan post: %s", err)
 					}
@@ -1512,14 +1552,14 @@ func TestCassete(t *testing.T) {
 			defer db.Close()
 
 			postsExpected := []*Post{
-				{1, "post 1", "hello"},
-				{2, "post 2", "world"},
+				{1, "post 1", "hello", 750.0},
+				{2, "post 2", "world", 100.0},
 			}
 
 			rows := func() *sqlmock.Rows {
-				rows := sqlmock.NewRows([]string{"id", "title", "body"})
+				rows := sqlmock.NewRows([]string{"id", "title", "body", "price"})
 				for _, post := range postsExpected {
-					rows.AddRow(post.ID, post.Title, post.Body)
+					rows.AddRow(post.ID, post.Title, post.Body, post.Price)
 				}
 				return rows
 			}
