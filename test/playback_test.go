@@ -1754,8 +1754,6 @@ func TestCassete(t *testing.T) {
 			assert.Nil(t, p.Get(cassette.ID))
 		})
 	})
-
-	// TODO Separate go.mod for ./test/
 }
 
 func tempFile(t *testing.T, mask string) *os.File {
