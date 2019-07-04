@@ -468,7 +468,7 @@ func (c *Cassette) AddResultRecord(key string, typString string, value interface
 	recorder.record()
 }
 
-func (c *Cassette) AddSQLRows(query string, rows driver.Rows, err error, options ...SQLRowsRecorderOption) *SQLRowsRecorder {
+func (c *Cassette) AddSQLRows(query string, rows driver.Rows, err error, options ...SQLRowsRecorderOption) {
 	recorder := &SQLRowsRecorder{
 		cassette: c,
 		query:    query,
@@ -479,11 +479,33 @@ func (c *Cassette) AddSQLRows(query string, rows driver.Rows, err error, options
 	recorder.newRecord(context.Background(), query)
 	if rows == nil && err == nil {
 		recorder.rec.RecordRequest()
-		return recorder
+		return
 	}
 
 	recorder.RecordResponse(rows, err)
-	return recorder
+	return
+}
+
+func (c *Cassette) AddSQLStmt(query string, numInput int, err error) {
+	ctx := context.Background()
+	stmt := &MockSQLDriverStmt{
+		StmtQuery:    query,
+		StmtNumInput: numInput,
+	}
+
+	recorder := &SQLStmtRecorder{
+		cassette: c,
+		query:    query,
+	}
+
+	recorder.newRecord(ctx, query)
+	if stmt == nil && err == nil {
+		recorder.rec.RecordRequest()
+		return
+	}
+
+	recorder.RecordResponse(ctx, stmt, err)
+	return
 }
 
 func (c *Cassette) HTTPResponse(req *http.Request) (*http.Response, error) {

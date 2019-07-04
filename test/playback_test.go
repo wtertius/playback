@@ -1668,11 +1668,17 @@ func TestCassete(t *testing.T) {
 		})
 
 		t.Run("Make cassette manually and playback", func(t *testing.T) {
-			query := `SELECT "id", "title", "body" FROM posts WHERE id > :id;`
+			query := `SELECT "id", "title", "body", "price" FROM posts WHERE id >= ?`
 			selectPosts := func(ctx context.Context, db *sql.DB) []*Post {
-				rows, err := db.QueryContext(ctx, query, sql.Named("id", 0))
+				stmt, err := db.PrepareContext(ctx, `SELECT "id", "title", "body", "price" FROM posts WHERE id >= ?`)
 				if err != nil {
-					t.Fatalf("Can't select from db: %s", err)
+					t.Fatal(err)
+				}
+				defer stmt.Close()
+
+				rows, err := stmt.Query(1)
+				if err != nil {
+					t.Fatal(err)
 				}
 				defer rows.Close()
 
@@ -1714,6 +1720,7 @@ func TestCassete(t *testing.T) {
 				return rows
 			}
 
+			cassette.AddSQLStmt(query, -1, nil)
 			cassette.AddSQLRows(query, rows(), nil)
 
 			cassette.SetMode(playback.ModePlayback)

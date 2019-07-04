@@ -5,7 +5,7 @@ import (
 	"database/sql/driver"
 )
 
-type sqlStmtRecorder struct {
+type SQLStmtRecorder struct {
 	connPrepareContext driver.ConnPrepareContext
 	cassette           *Cassette
 	rec                *record
@@ -16,8 +16,8 @@ type sqlStmtRecorder struct {
 	err   error
 }
 
-func newSQLStmtRecorder(ctx context.Context, connPrepareContext driver.ConnPrepareContext, query string) *sqlStmtRecorder {
-	recorder := &sqlStmtRecorder{
+func newSQLStmtRecorder(ctx context.Context, connPrepareContext driver.ConnPrepareContext, query string) *SQLStmtRecorder {
+	recorder := &SQLStmtRecorder{
 		connPrepareContext: connPrepareContext,
 		cassette:           CassetteFromContext(ctx),
 
@@ -28,12 +28,12 @@ func newSQLStmtRecorder(ctx context.Context, connPrepareContext driver.ConnPrepa
 	return recorder
 }
 
-func (r *sqlStmtRecorder) Call() error {
+func (r *SQLStmtRecorder) Call() error {
 	r.stmt, r.err = r.call(r.ctx, r.query)
 	return r.err
 }
 
-func (r *sqlStmtRecorder) call(ctx context.Context, query string) (driver.Stmt, error) {
+func (r *SQLStmtRecorder) call(ctx context.Context, query string) (driver.Stmt, error) {
 	defer func() {
 		if r.rec == nil {
 			return
@@ -47,13 +47,13 @@ func (r *sqlStmtRecorder) call(ctx context.Context, query string) (driver.Stmt, 
 	return r.connPrepareContext.PrepareContext(ctx, query)
 }
 
-func (r *sqlStmtRecorder) Record() error {
+func (r *SQLStmtRecorder) Record() error {
 	r.stmt, r.err = r.record(r.ctx, r.query)
 
 	return r.err
 }
 
-func (r *sqlStmtRecorder) record(ctx context.Context, query string) (driver.Stmt, error) {
+func (r *SQLStmtRecorder) record(ctx context.Context, query string) (driver.Stmt, error) {
 	rec := r.newRecord(ctx, query)
 	if rec == nil {
 		return r.call(ctx, query)
@@ -69,7 +69,7 @@ func (r *sqlStmtRecorder) record(ctx context.Context, query string) (driver.Stmt
 	return r.stmt, err
 }
 
-func (r *sqlStmtRecorder) RecordResponse(ctx context.Context, stmt driver.Stmt, err error) {
+func (r *SQLStmtRecorder) RecordResponse(ctx context.Context, stmt driver.Stmt, err error) {
 	mockStmt := NewMockSQLDriverStmtFrom(ctx, stmt, r.query)
 	r.stmt = mockStmt
 	r.rec.Response = string(mockStmt.Marshal())
@@ -79,13 +79,13 @@ func (r *sqlStmtRecorder) RecordResponse(ctx context.Context, stmt driver.Stmt, 
 	r.rec.Record()
 }
 
-func (r *sqlStmtRecorder) Playback() error {
+func (r *SQLStmtRecorder) Playback() error {
 	r.stmt, r.err = r.playback(r.ctx, r.query)
 
 	return r.err
 }
 
-func (r *sqlStmtRecorder) playback(ctx context.Context, query string) (driver.Stmt, error) {
+func (r *SQLStmtRecorder) playback(ctx context.Context, query string) (driver.Stmt, error) {
 	rec := r.newRecord(ctx, query)
 	if rec == nil {
 		return nil, ErrPlaybackFailed
@@ -107,7 +107,7 @@ func (r *sqlStmtRecorder) playback(ctx context.Context, query string) (driver.St
 	return stmt, rec.Err.error
 }
 
-func (r *sqlStmtRecorder) newRecord(ctx context.Context, query string) *record {
+func (r *SQLStmtRecorder) newRecord(ctx context.Context, query string) *record {
 	r.rec = &record{
 		Kind:     KindSQLStmt,
 		Key:      query,
