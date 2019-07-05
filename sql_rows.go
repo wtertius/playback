@@ -108,12 +108,12 @@ func (r *SQLRowsRecorder) RecordResponse(rows driver.Rows, err error) {
 }
 
 func (r *SQLRowsRecorder) Playback() error {
-	r.rows, r.err = r.playback(r.ctx, r.query, r.namedValues)
+	r.rows, r.err = r.playback(r.ctx, r.query)
 
 	return r.err
 }
 
-func (r *SQLRowsRecorder) playback(ctx context.Context, query string, namedValues []driver.NamedValue) (driver.Rows, error) {
+func (r *SQLRowsRecorder) playback(ctx context.Context, query string) (driver.Rows, error) {
 	rec := r.newRecord(ctx, query)
 	if rec == nil {
 		return nil, ErrPlaybackFailed
@@ -136,12 +136,18 @@ func (r *SQLRowsRecorder) playback(ctx context.Context, query string, namedValue
 }
 
 func (r *SQLRowsRecorder) newRecord(ctx context.Context, query string) *record {
-	requestDump := fmt.Sprintf("%s\n%#v\n%#v\n", query, r.namedValues, r.values)
+	request := query
+	if len(r.namedValues) > 0 {
+		request += fmt.Sprintf("\n%#v", r.namedValues)
+	}
+	if len(r.values) > 0 {
+		request += fmt.Sprintf("\n%#v", r.values)
+	}
 
 	r.rec = &record{
 		Kind:     KindSQLRows,
-		Key:      requestDump,
-		Request:  requestDump,
+		Key:      request,
+		Request:  request,
 		cassette: r.cassette,
 	}
 
