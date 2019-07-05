@@ -1721,7 +1721,7 @@ func TestCassete(t *testing.T) {
 			}
 
 			cassette.AddSQLStmt(query, -1, nil)
-			cassette.AddSQLRows(query, rows(), nil)
+			cassette.AddSQLRows(query, rows(), nil, playback.WithValues(1))
 
 			cassette.SetMode(playback.ModePlayback)
 

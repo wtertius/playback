@@ -140,7 +140,7 @@ func (r *SQLRowsRecorder) newRecord(ctx context.Context, query string) *record {
 
 	r.rec = &record{
 		Kind:     KindSQLRows,
-		Key:      query,
+		Key:      requestDump,
 		Request:  requestDump,
 		cassette: r.cassette,
 	}
@@ -156,13 +156,13 @@ func (r *SQLRowsRecorder) ApplyOptions(options ...SQLRowsRecorderOption) {
 
 type SQLRowsRecorderOption func(r *SQLRowsRecorder) *SQLRowsRecorder
 
-func WithNamedValues(namedValues []driver.NamedValue) SQLRowsRecorderOption {
+func WithNamedValues(namedValues ...driver.NamedValue) SQLRowsRecorderOption {
 	return func(r *SQLRowsRecorder) *SQLRowsRecorder {
 		return r.WithNamedValues(namedValues)
 	}
 }
 
-func WithValues(values []driver.Value) SQLRowsRecorderOption {
+func WithValues(values ...driver.Value) SQLRowsRecorderOption {
 	return func(r *SQLRowsRecorder) *SQLRowsRecorder {
 		return r.WithValues(values)
 	}

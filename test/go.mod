@@ -3,7 +3,6 @@ module github.com/wtertius/playback/test
 require (
 	cloud.google.com/go v0.41.0
 	github.com/DATA-DOG/go-sqlmock v1.3.3
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/stretchr/testify v1.3.0
 	github.com/wtertius/playback v0.0.0
 	google.golang.org/grpc v1.22.0
