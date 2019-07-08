@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-var contextKeyCassette = struct{}{}
+type contextKeyCassette struct{}
 
 func FromContext(ctx context.Context) *Playback {
 	c := CassetteFromContext(ctx)
@@ -21,7 +21,7 @@ func ProxyCassetteContext(ctx context.Context) context.Context {
 }
 
 func CassetteFromContext(ctx context.Context) *Cassette {
-	c, _ := ctx.Value(contextKeyCassette).(*Cassette)
+	c, _ := ctx.Value(contextKeyCassette{}).(*Cassette)
 
 	return c
 }
@@ -32,9 +32,9 @@ func (p *Playback) NewContext(ctx context.Context) context.Context {
 		p.Error = err
 	}
 
-	return context.WithValue(ctx, contextKeyCassette, c)
+	return context.WithValue(ctx, contextKeyCassette{}, c)
 }
 
 func NewContextWithCassette(ctx context.Context, cassette *Cassette) context.Context {
-	return context.WithValue(ctx, contextKeyCassette, cassette)
+	return context.WithValue(ctx, contextKeyCassette{}, cassette)
 }
