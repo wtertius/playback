@@ -926,6 +926,23 @@ func TestCassete(t *testing.T) {
 						assert.Equal(t, body, bodyGot)
 					})
 
+					t.Run("Record if cassette id doesn't exist", func(t *testing.T) {
+						req, _ := http.NewRequest("GET", "http://example.com/foo", nil)
+						req.Header.Set(playback.HeaderCassetteID, "no_such_id")
+
+						w := httptest.NewRecorder()
+						handler.ServeHTTP(w, req)
+
+						resp := w.Result()
+						body, _ = ioutil.ReadAll(resp.Body)
+						assert.Equal(t, test.expectedBody, string(body))
+
+						assert.Equal(t, playback.ModeRecord, playback.Mode(resp.Header.Get(playback.HeaderMode)))
+						assert.Equal(t, "", resp.Header.Get(playback.HeaderSuccess))
+
+						removeFilename(t, resp.Header.Get(playback.HeaderCassettePathName))
+					})
+
 					t.Run("record and playback cassette using request headers", func(t *testing.T) {
 						cassetteID := ""
 						expectedBody := ""

@@ -123,7 +123,9 @@ func (p *Playback) incomingCassette(ctx context.Context, cassetteID, mode, pathT
 	if cassette == nil {
 		if cassetteID != "" {
 			cassette = p.cassettes[cassetteID]
-			cassette.SetMode(ModePlayback).Rewind()
+			if cassette != nil {
+				cassette.SetMode(ModePlayback).Rewind()
+			}
 		}
 	}
 	if cassette == nil && PathType(pathType) == PathTypeFile {
