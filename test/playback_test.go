@@ -1386,6 +1386,8 @@ func TestCassete(t *testing.T) {
 			assert.Equal(t, string(playback.ModeRecord), header.Get(playback.HeaderMode))
 			assert.NotEmpty(t, header.Get(playback.HeaderCassettePathName))
 			assert.Equal(t, "true", header.Get(playback.HeaderSuccess))
+
+			removeFilename(t, header.Get(playback.HeaderCassettePathName))
 		})
 	})
 
